@@ -5,6 +5,9 @@ import WebKit
 /// 使用异步滚动路径，而不必等待页面中的阻塞式 JavaScript wheel 监听器。
 final class EditorWebView: WKWebView {
     weak var editorSession: EditorSession?
+    private var autoscrollTimer: Timer?
+    private var autoscrollEvent: NSEvent?
+    private var isHandlingSyntheticDrag = false
 
     override func magnify(with event: NSEvent) {
         // 触控板捏合：AppKit 的 magnification 为缩放因子增量，放大为正。
@@ -38,6 +41,96 @@ final class EditorWebView: WKWebView {
             clientX: Double(point.x),
             clientY: Double(point.y)
         )
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        guard !isHandlingSyntheticDrag else {
+            super.mouseDragged(with: event)
+            return
+        }
+        scheduleAutoscroll(event)
+        super.mouseDragged(with: event)
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        stopAutoscroll()
+        super.mouseUp(with: event)
+    }
+
+    /// WKWebView does not reliably autoscroll a ProseMirror drag selection when
+    /// the mouse reaches the viewport edge. Scroll from the host, then replay the
+    /// current drag at the same window location so WebKit extends the selection.
+    private func scheduleAutoscroll(_ event: NSEvent) {
+        autoscrollEvent = event
+        if autoscrollTimer != nil { return }
+        autoscrollTimer = Timer(timeInterval: 1.0 / 60.0,
+                                target: self,
+                                selector: #selector(autoscrollTick),
+                                userInfo: nil,
+                                repeats: true)
+        RunLoop.main.add(autoscrollTimer!, forMode: .common)
+    }
+
+    @objc private func autoscrollTick() {
+        guard let event = autoscrollEvent else {
+            stopAutoscroll()
+            return
+        }
+        let viewPoint = convert(event.locationInWindow, from: nil)
+        let direction = EditorAutoscrollPolicy.direction(
+            y: viewPoint.y,
+            viewportHeight: bounds.height,
+            edge: 56
+        )
+        guard direction != 0 else { return }
+        let speed = CGFloat(EditorAutoscrollPolicy.speed(overflow: abs(direction)))
+        let delta = speed * direction
+        let javascript = "window.scrollBy(0, \(delta));"
+
+        isHandlingSyntheticDrag = true
+        let checkAndScroll = """
+        (() => {
+          const element = document.scrollingElement || document.documentElement;
+          const maximum = Math.max(0, element.scrollHeight - element.clientHeight);
+          const before = element.scrollTop;
+          const next = Math.max(0, Math.min(before + \(delta), maximum));
+          element.scrollTop = next;
+          return next - before;
+        })()
+        """
+        evaluateJavaScript(checkAndScroll) { [weak self] result, _ in
+            let scrolled = (result as? Double) ?? 0
+            guard let self, self.isHandlingSyntheticDrag, let event = self.autoscrollEvent, scrolled != 0 else {
+                self?.stopAutoscroll()
+                return
+            }
+            self.replayDrag(event)
+            self.isHandlingSyntheticDrag = false
+        }
+    }
+
+    private func replayDrag(_ event: NSEvent) {
+        super.mouseDragged(with: event)
+    }
+
+    private func stopAutoscroll() {
+        autoscrollTimer?.invalidate()
+        autoscrollTimer = nil
+        autoscrollEvent = nil
+        isHandlingSyntheticDrag = false
+    }
+}
+
+enum EditorAutoscrollPolicy {
+    static func direction(y: CGFloat, viewportHeight: CGFloat, edge: CGFloat) -> CGFloat {
+        let bottomStart = viewportHeight - edge
+        if y < edge { return -(edge - y) }
+        if y > bottomStart { return y - bottomStart }
+        return 0
+    }
+
+    static func speed(overflow: CGFloat) -> Int {
+        Int(min(24, max(6, round(overflow / 5))))
     }
 }
 

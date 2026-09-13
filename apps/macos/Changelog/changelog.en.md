@@ -26,6 +26,7 @@
 - Fixed outline clicks not jumping to the corresponding heading.
 - Fixed “Show Outline on the Right” showing as unchecked in the menu while enabled.
 - Fixed externally opened files, Open…, and recent files still creating a new tab when the external file open mode is set to Open in the Current Tab.
+- Fixed whole-list-item highlight during drag or Shift+Arrow selection and drag autoscroll at window edges in long documents.
 
 ## 1.7.5 — 2026-09-10
 
