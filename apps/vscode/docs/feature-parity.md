@@ -1,4 +1,4 @@
-# VS Code 功能对应说明（0.2.7）
+# VS Code 功能对应说明（0.2.8）
 
 本表按当前共享编辑器、macOS 菜单和 Windows 宿主已有职责核对。编辑功能复用共享内核，文件和窗口管理由 VS Code 提供；导出与打印在 VS Code 中使用已安装 Chrome/Edge，HTML 生成复用共享内核。表中的接入情况指源码链路和入口，实际平台交互仍需安装验收。
 
@@ -28,6 +28,8 @@
 | PDF、HTML、PNG/JPG、预览、打印 | “导出…”菜单、独立命令和上次设置 | `export-html.ts` 共享文档生成；`DocumentExports` 获取 TextDocument 快照与内嵌资源，`export-browser.ts` 使用 puppeteer-core 驱动临时 Chrome/Edge。HTML 保存不需浏览器；交互预览/打印限本地窗口。 |
 
 菜单可用和选中状态由共享 `command-state.ts` 投影提供；产品只映射命令和收集参数。空选区的行内格式命令设置后续输入格式，修改现有内容需要先选择文字。
+
+0.2.8 修复工具栏消息对内核命令状态的校验，并调整导出、快捷键窗口的滚动区域与菜单边界。设置和帮助入口使用 `ExtensionContext.extension.id`，跟随当前安装包的发布者和名称；不再绑定旧本地包 ID。36 项设置仍使用 `markleaf.*` 配置键，三种配置作用域及现有用户设置保持不变。
 
 ## 验证口径
 

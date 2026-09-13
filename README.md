@@ -149,6 +149,8 @@ corepack pnpm package:vscode
 
 产物为 `artifacts/markleaf-vscode-0.2.8.vsix`。
 
+扩展版本由 `apps/vscode/package.json` 的 `version` 管理，与原生产品版本独立。当前扩展 ID 为 `zhuanshunjishi2017.markleaf`。使用 MarkLeaf 的“全部设置”或扩展详情中的 **扩展设置 / Extension Settings** 打开设置页；运行时按当前安装包 ID 定位，避免沿用旧本地包的搜索筛选。`markleaf.*` 配置键保持不变。
+
 在 VS Code 中使用 <strong>Install from VSIX…</strong> 安装生成的扩展包。新打开的 `.md`、`.markdown` 文件默认进入 MarkLeaf；已有源码标签使用 <strong>Reopen Editor With… → MarkLeaf</strong>，已有默认关联使用 <strong>Configure default editor for…</strong> 调整。<strong>Ctrl+Shift+V</strong>（macOS 为 <strong>Cmd+Shift+V</strong>）在原生源码与渲染视图间切换。
 
 升级后先保存文档，再运行 <strong>Developer: Reload Window</strong>。若设置项缺失或提示 `markleaf.shortcuts` 未注册，需要重新加载整个窗口。通过 <strong>视图 → 快捷键…</strong> 录入格式键位。阅读不会回写；可视化编辑可能规范化 Markdown 格式，详见 [扩展使用与保真边界](./apps/vscode/README.md)。
@@ -178,6 +180,8 @@ dotnet run --project .\apps\windows\MarkLeaf\MarkLeaf.csproj
 ```
 
 <strong>Windows 发布支持两种安装包格式：Inno Setup 生成用于 GitHub Release 的</strong> `.exe`<strong>，MSIX 生成用于 Microsoft Store 的商店包。MSIX 构建默认输出</strong> `win-x64` <strong>和</strong> `win-arm64` <strong>两个自包含架构，并支持简体中文、繁体中文、英语和日语资源。</strong>
+
+MSIX 的商店身份、签名与构建参数见 [MSIX 打包说明](./apps/windows/msix/README.md)。
 
 ### macOS
 

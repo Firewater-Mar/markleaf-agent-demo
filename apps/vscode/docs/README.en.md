@@ -127,7 +127,11 @@ Each file supports one MarkLeaf visual view alongside native source. Hidden view
 
 ## Typography and preferences
 
-Use the typography/settings entry in “视图” (View), or search VS Code settings for `@ext:markleaf.markleaf`. Settings use existing user, workspace, or workspace-folder scopes.
+Use the typography/settings entry in “视图” (View), then choose “全部 MarkLeaf 设置…” (All MarkLeaf Settings). You can also choose **Extension Settings** from the gear menu on the extension details page, or search for a setting key such as `markleaf.fontSize`. Settings and help use the current extension ID supplied by VS Code, with the same logic on Windows, macOS, and Linux. Settings use existing user, workspace, or workspace-folder scopes.
+
+The current package is **0.2.8**, published under `zhuanshunjishi2017`, with ID `zhuanshunjishi2017.markleaf`. Older local packages used `markleaf.markleaf`. If an old `@ext:` filter produces an empty list, clear it and reopen settings from the extension details page. Configuration keys remain `markleaf.*`; existing settings need no migration. The extension version comes from `version` in `apps/vscode/package.json`, independently of the repository package and native products.
+
+Export and shortcut dialogs keep their titles and actions visible while the content scrolls. Menus stay inside narrow windows; math and diagram overlays use the shared kernel's stacking and positioning.
 
 | Group | Main settings |
 | --- | --- |

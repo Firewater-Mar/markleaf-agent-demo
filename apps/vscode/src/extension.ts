@@ -29,7 +29,7 @@ class EditorPanel implements vscode.Disposable {
   private flushId = 0
   private readonly flushes = new Map<number, { resolve(success: boolean): void; timer: ReturnType<typeof setTimeout> }>()
 
-  constructor(readonly document: vscode.TextDocument, readonly panel: vscode.WebviewPanel, private readonly updateFocus: () => void, state: vscode.Memento) {
+  constructor(readonly document: vscode.TextDocument, readonly panel: vscode.WebviewPanel, private readonly updateFocus: () => void, state: vscode.Memento, private readonly extensionId: string) {
     this.exports = new DocumentExports(document, state, message => this.post(message), () => this.flush())
     this.subscriptions.push(
       panel.onDidChangeViewState(() => {
@@ -237,8 +237,8 @@ class EditorPanel implements vscode.Disposable {
         break
       }
       case 'pastePlainText': this.post({ type: 'command', command: 'pastePlainText', text: await vscode.env.clipboard.readText() }); break
-      case 'preferences': await pickPreferences(this.document.uri); break
-      case 'help': await vscode.commands.executeCommand('workbench.action.openWalkthrough', 'markleaf.markleaf#markleaf.start'); break
+      case 'preferences': await pickPreferences(this.document.uri, this.extensionId); break
+      case 'help': await vscode.commands.executeCommand('workbench.action.openWalkthrough', `${this.extensionId}#markleaf.start`); break
 
     }
   }
@@ -315,7 +315,7 @@ export function activate(context: vscode.ExtensionContext): void {
     async resolveCustomTextEditor(document, panel) {
       const assets = vscode.Uri.joinPath(context.extensionUri, 'dist', 'webview')
       panel.webview.options = { enableScripts: true, localResourceRoots: localResourceRoots(document, assets) }
-      const editor = new EditorPanel(document, panel, updateFocus, context.globalState)
+      const editor = new EditorPanel(document, panel, updateFocus, context.globalState, context.extension.id)
       panels.add(editor)
       panel.onDidDispose(() => { panels.delete(editor); editor.dispose() }, undefined, context.subscriptions)
       try { panel.webview.html = await webviewHtml(panel.webview, assets) }

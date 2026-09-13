@@ -128,7 +128,7 @@ Windows/macOS：editor-web/src/main.ts，內建 CodeMirror 6 原始碼模式
 VS Code：apps/vscode/webview/src/vscode.ts，使用 VS Code 原生 Markdown 原始碼編輯器
 ```
 
-`build:kernel` 產生共享渲染檔案與 VS Code 專用的無 DOM `document-kernel.cjs`。macOS、Windows 與 VS Code Webview 載入同一組渲染檔案，文件規則由 VS Code Node.js 載入。macOS 與 Windows 繼續使用原生編碼、檔案讀寫、搜尋、預覽與還原實作。`build:products` 建置一次核心後裝配各產品。詳見 [核心邊界](./kernel-boundaries.md)。
+`build:kernel` 產生共享渲染檔案與 VS Code 專用的無 DOM `document-kernel.cjs`。macOS、Windows 與 VS Code Webview 載入共用渲染核心，文件規則由 VS Code Node.js 載入。macOS 與 Windows 繼續使用原生編碼、檔案讀寫、搜尋、預覽與還原實作。`build:products` 先建置原生 Webview，再為 VS Code 建置文件與渲染核心並裝配擴充功能。詳見 [核心邊界](./kernel-boundaries.md)。
 
 ## 建置與執行
 
@@ -142,6 +142,8 @@ corepack pnpm package:vscode
 ```
 
 產物為 `artifacts/markleaf-vscode-0.2.8.vsix`。
+
+擴充功能版本由 `apps/vscode/package.json` 的 `version` 管理，與原生產品版本獨立。目前 ID 為 `zhuanshunjishi2017.markleaf`。請透過 MarkLeaf 的「全部設定」或擴充功能詳細資料中的 **擴充功能設定 / Extension Settings** 開啟設定頁；執行時會使用目前套件的 ID，避免沿用舊本機套件的搜尋條件。`markleaf.*` 設定鍵保持不變。
 
 在 VS Code 中使用 **Install from VSIX…** 安裝產生的擴充套件。新開啟的 `.md`、`.markdown` 檔案預設進入 MarkLeaf；既有原始碼分頁使用 **Reopen Editor With… → MarkLeaf**，既有預設關聯使用 **Configure default editor for…** 調整。**Ctrl+Shift+V**（macOS 為 **Cmd+Shift+V**）在原始碼與渲染檢視間切換。
 
@@ -170,6 +172,8 @@ dotnet restore .\apps\windows\MarkLeaf\MarkLeaf.csproj
 dotnet build .\apps\windows\MarkLeaf\MarkLeaf.csproj --no-restore
 dotnet run --project .\apps\windows\MarkLeaf\MarkLeaf.csproj
 ```
+
+Windows 支援 Inno Setup 產生的 GitHub Release `.exe` 安裝程式，以及 Microsoft Store 提交用的 MSIX。MSIX 預設產生 `win-x64` 和 `win-arm64` 自包含套件，支援簡體中文、繁體中文、英語與日語資源。商店身分、簽章及建置參數見 [MSIX 說明](../apps/windows/msix/README.md)。
 
 ### macOS
 

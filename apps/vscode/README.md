@@ -129,7 +129,11 @@ Webview 同时只提交一次编辑，收到版本确认后再提交期间累积
 
 ## 排版和偏好
 
-通过“视图 → 排版、主题与设置…”选择常用选项，或在 VS Code 设置中搜索 `@ext:markleaf.markleaf`。设置遵循已有的用户、工作区或工作区文件夹作用域。
+通过“视图 → 排版、主题与设置…”选择常用选项，再选择“全部 MarkLeaf 设置…”；也可在扩展详情的齿轮菜单选择 **扩展设置 / Extension Settings**，或直接搜索设置键（如 `markleaf.fontSize`）。设置和帮助入口从 VS Code 读取当前扩展 ID，Windows、macOS、Linux 使用相同逻辑。设置遵循已有的用户、工作区或工作区文件夹作用域。
+
+当前包版本为 **0.2.8**，发布者为 `zhuanshunjishi2017`，扩展 ID 为 `zhuanshunjishi2017.markleaf`，与旧本地包的 `markleaf.markleaf` 不同。如果沿用旧的 `@ext:` 搜索条件导致列表为空，清除筛选后从扩展详情重新打开设置。`markleaf.*` 配置键保持不变，无需迁移用户设置。扩展版本来自 `apps/vscode/package.json` 的 `version`，不跟随仓库包或原生产品版本。
+
+导出和快捷键窗口固定标题与操作区，中间内容独立滚动；窄窗口菜单限制在可见区域内，公式与图表浮层沿用共享内核的层级和定位。
 
 
 | 设置组         | 主要设置                                                                                                                                                                                               |

@@ -9,7 +9,7 @@
 - **编辑**：复制为 Markdown / 纯文本 / HTML，粘贴纯文本，查找和替换。常规 Ctrl/Cmd+C 保留选区的文本和 HTML；“复制 HTML”得到源码文本。可视模式的普通文本粘贴和“粘贴纯文本”均按 Windows 规则解析 Markdown；源码编辑保留字面文本。状态栏会显示格式转换、降级原因或失败。
 - **视图**：大纲、专注段落、打字机滚动、缩放、默认极简排版，也可选择九种排版和原有配色主题。
 - **快捷键**：“视图 → 快捷键…”可搜索、录入、清除或恢复格式操作键位，保存后在格式菜单同步显示。公式默认未绑定；绑定后可在渲染编辑区直接打开公式辅助。
-- **设置**：在 VS Code 设置中搜索 `@ext:markleaf.markleaf`，调整字体、行高、间距、图片处理、Markdown 标记及 `markleaf.shortcuts`。源码切换、查找等宿主操作通过 VS Code Keyboard Shortcuts 自定义。
+- **设置**：通过“视图 → 排版、主题与设置… → 全部 MarkLeaf 设置…”或扩展详情的 **扩展设置 / Extension Settings** 打开，调整字体、行高、间距、图片处理、Markdown 标记及 `markleaf.shortcuts`。也可直接搜索 `markleaf.fontSize` 等设置键。源码切换、查找等宿主操作通过 VS Code Keyboard Shortcuts 自定义。
 
 升级后若快捷键面板提示配置尚未注册，请先保存文档，再运行 **Developer: Reload Window（开发人员: 重新加载窗口）**，然后重新录入并保存键位。
 

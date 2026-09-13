@@ -59,7 +59,7 @@ export async function updateSetting(uri: vscode.Uri, key: keyof MarkLeafSettings
   await config.update(key, value, target)
 }
 
-export async function pickPreferences(uri: vscode.Uri): Promise<void> {
+export async function pickPreferences(uri: vscode.Uri, extensionId: string): Promise<void> {
   const settings = readSettings(uri)
   type Item = vscode.QuickPickItem & { key?: keyof MarkLeafSettings; shortcuts?: boolean }
   const items: Item[] = [
@@ -77,7 +77,7 @@ export async function pickPreferences(uri: vscode.Uri): Promise<void> {
   if (!choice) return
   if (choice.shortcuts) { await vscode.commands.executeCommand('markleaf.shortcuts'); return }
   const key = choice.key
-  if (!key) { await vscode.commands.executeCommand('workbench.action.openSettings', '@ext:markleaf.markleaf'); return }
+  if (!key) { await vscode.commands.executeCommand('workbench.action.openSettings', `@ext:${extensionId}`); return }
   if (typeof settings[key] === 'boolean') { await updateSetting(uri, key, !settings[key]); return }
   if (key === 'typography' || key === 'colorTheme') {
     const value = await vscode.window.showQuickPick(key === 'typography' ? [...typographyStyles] : [...colorThemes], { title: choice.label })

@@ -129,7 +129,7 @@ Windows/macOS：editor-web/src/main.ts、内蔵 CodeMirror 6 ソースモード
 VS Code：apps/vscode/webview/src/vscode.ts、VS Code 標準の Markdown ソースエディタ
 ```
 
-`build:kernel` は共有レンダラーと VS Code 専用の DOM 非依存 `document-kernel.cjs` を生成します。macOS、Windows、VS Code の Webview は同じ描画ファイルを読み込み、文書規則は VS Code Node.js が読み込みます。macOS と Windows はネイティブの符号判定、ファイル I/O、検索、プレビュー、復元実装を維持します。`build:products` はカーネルを一度ビルドして各製品に配布します。[責務の詳細](./kernel-boundaries.md)。
+`build:kernel` は共有レンダラーと VS Code 専用の DOM 非依存 `document-kernel.cjs` を生成します。macOS、Windows、VS Code の Webview は共通のレンダラーを読み込み、文書規則は VS Code Node.js が読み込みます。macOS と Windows はネイティブの符号判定、ファイル I/O、検索、プレビュー、復元実装を維持します。`build:products` はネイティブ Webview をビルドした後、VS Code 用の文書カーネルとレンダラーをビルドして拡張機能を構成します。[責務の詳細](./kernel-boundaries.md)。
 
 ## ビルドと実行
 
@@ -143,6 +143,8 @@ corepack pnpm package:vscode
 ```
 
 生成されるパッケージは `artifacts/markleaf-vscode-0.2.8.vsix` です。
+
+拡張機能のバージョンは `apps/vscode/package.json` の `version` で管理し、ネイティブ製品とは独立しています。現在の ID は `zhuanshunjishi2017.markleaf` です。MarkLeaf の「全部 MarkLeaf 设置…」または拡張機能詳細の **拡張機能の設定 / Extension Settings** から設定を開いてください。現在のパッケージの ID を使うため、古いローカルパッケージの検索条件を再利用する必要はありません。設定キーは `markleaf.*` のままです。
 
 VS Code の **Install from VSIX…** で生成したパッケージをインストールします。新しく開く `.md`、`.markdown` は既定で MarkLeaf を使用します。既存のソースタブは **Reopen Editor With… → MarkLeaf** で切り替え、既定の関連付けは **Configure default editor for…** で変更します。**Ctrl+Shift+V**（macOS は **Cmd+Shift+V**）でソースとレンダリング表示を切り替えます。
 
@@ -171,6 +173,8 @@ dotnet restore .\apps\windows\MarkLeaf\MarkLeaf.csproj
 dotnet build .\apps\windows\MarkLeaf\MarkLeaf.csproj --no-restore
 dotnet run --project .\apps\windows\MarkLeaf\MarkLeaf.csproj
 ```
+
+Windows では GitHub Release 用の Inno Setup `.exe` と Microsoft Store 提出用の MSIX を作成できます。MSIX は既定で `win-x64` と `win-arm64` の自己完結型パッケージを生成し、簡体字中国語、繁体字中国語、英語、日本語のリソースを含みます。ストア ID、署名、ビルド引数は [MSIX ガイド](../apps/windows/msix/README.md)を参照してください。
 
 ### macOS
 

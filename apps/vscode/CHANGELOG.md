@@ -2,6 +2,13 @@
 
 All notable changes to the MarkLeaf VS Code extension are documented here.
 
+## 0.2.8
+
+- Fixed toolbar actions rejected by validation of shared kernel command state.
+- Fixed overlapping export and shortcut dialogs, off-screen menus, and obscured math overlays.
+- Settings and help now use the running extension ID, including packages published as `zhuanshunjishi2017.markleaf`; existing `markleaf.*` settings are preserved.
+- Updated the four-language guides, settings entry instructions, and feature mapping.
+
 ## [0.2.7] - 2026-09-13
 
 - Added PDF, standalone HTML, PNG/JPG image export, preview, and printing.

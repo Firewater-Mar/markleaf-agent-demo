@@ -1,6 +1,6 @@
 # 共享内核与产品边界
 
-`packages/editor-core` 是 Markdown 语法、编辑行为和文档规则的唯一实现。仓库统一构建内核，各产品加载同一组 JavaScript/CSS 产物。产品负责系统接口和控件呈现：AppKit、WinForms、VS Code 的窗口、菜单外观、液态玻璃等效果不进入内核；Markdown 渲染、组件交互和文档内容解释不在产品层重写。
+`packages/editor-core` 统一提供 Markdown 渲染、编辑和组件交互，各产品装配公共 JavaScript/CSS 产物。无 DOM 的文档规则目前仅供 VS Code 使用；macOS 和 Windows 保留原生文件、编码、搜索与恢复实现。产品负责系统接口和控件呈现：AppKit、WinForms、VS Code 的窗口、菜单外观、液态玻璃等效果不进入渲染内核。
 
 ## 一次构建，多个宿主加载
 
@@ -40,9 +40,9 @@ VS Code 的 `TextDocument` 继续拥有文档内容、撤销记录和保存生�
 
 | 内核模块 | 唯一职责 | 产品层保留 |
 | --- | --- | --- |
-| `document/markdown-syntax.ts`、`document/projection.ts` | Markdown 扩展词法、纯文本投影、搜索匹配、预览摘要；代码和纯文本的字面内容保持 | 枚举文件、路径与权限、原始字节读取、搜索结果控件 |
-| `document/encoding.ts` | 编码目录、BOM/端序、检测顺序、无损判断、换行规则、截断预览边界 | 系统字符编码转换原语 |
-| `document/transactions.ts` | 保存冲突决策、保存字节准备、版本对应的脏状态、恢复格式及去重 | 文件锁、原子写入、文件监视、时间和版本事实 |
+| `document/markdown-syntax.ts`、`document/projection.ts`（VS Code） | Markdown 扩展词法、纯文本投影、搜索匹配、预览摘要；代码和纯文本的字面内容保持 | 原生产品保留各自投影和搜索实现；宿主负责文件枚举与结果控件 |
+| `document/encoding.ts`（VS Code） | 编码目录、BOM/端序、检测顺序、无损判断、换行规则、截断预览边界 | 原生产品保留编码实现；宿主提供系统转换原语 |
+| `document/transactions.ts`（VS Code） | 保存冲突决策、保存字节准备、版本对应的脏状态、恢复格式及去重 | 原生产品保留文件生命周期；宿主提供文件锁、写入、监视与版本事实 |
 | `command-state.ts`、`getEditorCommandPresentation` | 命令可用／选中状态与语义上下文 | 命令 ID 映射、菜单样式、窗口和系统剪贴板事实 |
 | `document-pointer.ts`、`document-links.ts` | 原子节点点击、右键选区、公式／图表展开、锚点和脚注跳转 | 平台主修饰键、外部链接打开、缺失引用提示 |
 | `editor-interactions.ts` | 格式刷、块句柄、IME 与交互生命周期 | 块菜单控件和文案 |
@@ -71,7 +71,7 @@ corepack pnpm install:vscode
 corepack pnpm build:products
 ```
 
-`build:products` 只构建一次内核，然后构建原生 Webview、VS Code Webview 和扩展宿主。只构建单个产品可用 `build:editor-web` 或 `build:vscode`，二者均先调用公共内核构建入口。直接运行适配包的 `build` 只消费已有内核产物，缺失时明确失败。
+当前 `build:products` 先构建渲染内核和原生 Webview，再调用 `build:vscode` 构建文档内核、渲染内核及扩展；渲染内核在该脚本中会执行两次构建。单个产品使用 `build:editor-web` 或 `build:vscode`，前者仅构建渲染入口，后者还生成文档入口。适配包自身的 `build` 消费已有内核产物，缺失时明确失败。
 
 完成统一构建后可复用产物打包：
 

@@ -144,6 +144,8 @@ corepack pnpm package:vscode
 
 The package is written to `artifacts/markleaf-vscode-0.2.8.vsix`.
 
+The extension version is managed by `version` in `apps/vscode/package.json`, independently of native products. Its current ID is `zhuanshunjishi2017.markleaf`. Open settings through MarkLeaf's All Settings entry or **Extension Settings** on the extension details page. These entries use the running package's ID; avoid reusing an old local package's search filter. Configuration keys remain `markleaf.*`.
+
 Install the generated package with **Install from VSIX…** in VS Code. Newly opened `.md` and `.markdown` files use MarkLeaf by default. For existing source tabs, use **Reopen Editor With… → MarkLeaf**; change an existing association with **Configure default editor for…**. **Ctrl+Shift+V** (**Cmd+Shift+V** on macOS) switches between native source and rendered views.
 
 After upgrading, save your documents and run **Developer: Reload Window**. Missing settings or an unregistered `markleaf.shortcuts` setting require a full window reload. Open **视图 → 快捷键…** (View → Shortcuts) to record formatting shortcuts. Reading does not write to the file; visual edits may normalize Markdown formatting. See the [extension guide and fidelity limits](../apps/vscode/docs/README.en.md).
@@ -171,6 +173,8 @@ dotnet restore .\apps\windows\MarkLeaf\MarkLeaf.csproj
 dotnet build .\apps\windows\MarkLeaf\MarkLeaf.csproj --no-restore
 dotnet run --project .\apps\windows\MarkLeaf\MarkLeaf.csproj
 ```
+
+Windows packaging supports Inno Setup `.exe` installers for GitHub Release and MSIX packages for Microsoft Store submission. MSIX defaults to self-contained `win-x64` and `win-arm64` builds with Simplified Chinese, Traditional Chinese, English, and Japanese resources. See the [MSIX guide](../apps/windows/msix/README.md) for Store identity, signing, and build options.
 
 ### macOS
 
