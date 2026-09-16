@@ -54,7 +54,7 @@
   "menu.edit.find": "&Find\tCtrl+F",
   "menu.edit.replace": "&Replace\tCtrl+H",
   "menu.edit.selectAll": "Select &All\tCtrl+A",
-  "menu.edit.aiAssistant": "MarkLeaf Proof Workspace(&I)...",
+  "menu.edit.aiAssistant": "Focus MarkLeaf Agent(&I)",
 
   "menu.paragraph.label": "&Paragraph",
   "menu.paragraph.paragraph": "&Paragraph",

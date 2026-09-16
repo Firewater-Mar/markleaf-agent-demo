@@ -32,7 +32,7 @@ internal static class ProofReportBuilder
     private static string BuildCiReport(ProofProject project, ProofCiResult result, string documentName)
     {
         var builder = new StringBuilder();
-        builder.AppendLine("# MarkLeaf Proof 文档体检报告");
+        builder.AppendLine("# MarkLeaf Agent 文档体检报告");
         builder.AppendLine();
         builder.AppendLine($"- 项目：{project.Title}");
         builder.AppendLine($"- 文档：{documentName}");
@@ -60,7 +60,7 @@ internal static class ProofReportBuilder
         var builder = new StringBuilder();
         builder.AppendLine("# AI 使用说明");
         builder.AppendLine();
-        builder.AppendLine($"本文档《{documentName}》在写作过程中使用了 MarkLeaf Proof 辅助。AI 仅根据用户主动导入的资料生成建议，所有写入正文的内容均需由用户确认。");
+        builder.AppendLine($"本文档《{documentName}》在写作过程中使用了 MarkLeaf Agent 辅助。AI 仅根据用户主动导入的资料生成建议，所有写入正文的内容均需由用户确认。");
         builder.AppendLine();
         builder.AppendLine("## 已登记资料");
         builder.AppendLine();

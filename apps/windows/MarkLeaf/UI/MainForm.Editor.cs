@@ -72,6 +72,7 @@ internal sealed partial class MainForm
         _editorHost.DocumentLoaded += (_, _) => ContinueEditorSmokeAfterLoad();
         _editorHost.DocumentLoaded += (_, _) => BeginEditorCommandSmokeIfRequested();
         _editorHost.DocumentLoaded += async (_, _) => await ContinueDocumentSmokeAfterLoadAsync();
+        _editorHost.DocumentLoaded += async (_, _) => await _agentPanel.RefreshContextAsync();
         _editorHost.DocumentLoaded += (_, message) =>
         {
             if (_pendingEditorRevealDocumentId is { } pendingId

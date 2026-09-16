@@ -64,6 +64,7 @@ internal sealed partial class MainForm
             ShowSidebarView(outline: false);
         }
         SetStatus(Loc.Format("status.workspaceOpened", Path.GetFileName(fullPath)));
+        await _agentPanel.RefreshContextAsync();
         _menuService.RefreshStates();
     }
 
@@ -83,6 +84,7 @@ internal sealed partial class MainForm
         ClearWorkspacePlaceholder();
         ShowNoWorkspacePlaceholder();
         SetStatus(Loc.Get("status.workspaceClosed"));
+        _ = _agentPanel.RefreshContextAsync();
         _menuService.RefreshStates();
     }
 

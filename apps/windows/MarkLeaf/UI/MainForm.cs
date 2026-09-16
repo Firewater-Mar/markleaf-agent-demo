@@ -12,6 +12,7 @@ using MarkLeaf.Services.Settings;
 using MarkLeaf.UI.Controls;
 using MarkLeaf.UI.Dialogs;
 using MarkLeaf.Services.Styles;
+using MarkLeaf.UI.Agent;
 using MarkLeaf.Workspace;
 using Microsoft.Web.WebView2.WinForms;
 
@@ -75,6 +76,8 @@ internal sealed partial class MainForm : Form
     private bool _closeApproved;
     private int _effectiveDpi;
     private readonly LiveSplitContainer _sidebarSplit;
+    private LiveSplitContainer _agentSplit = default!;
+    private AgentPanel _agentPanel = default!;
     private LiveSplitContainer _outlineSplit = default!;
     private Panel _detachedOutlinePanel = default!;
     private Panel _detachedOutlineContentHost = default!;
@@ -266,7 +269,7 @@ internal sealed partial class MainForm : Form
             ShowTopLevelMainMenu(request.MenuIndex, request.ScreenLocation);
         _documentTabBar.NewDocumentRequested += (_, _) => _ = NewDocumentAsync(NewDocumentKind.Markdown);
 
-        Text = "MarkLeaf";
+        Text = "MarkLeaf Agent";
         ShowIcon = true;
         var iconPath = Path.Combine(AppContext.BaseDirectory, "Resources", "App", "App.ico");
         if (File.Exists(iconPath))
@@ -276,7 +279,7 @@ internal sealed partial class MainForm : Form
         }
         StartPosition = FormStartPosition.Manual;
         AutoScaleMode = AutoScaleMode.Dpi;
-        MinimumSize = new Size(900, 600);
+        MinimumSize = new Size(1160, 680);
         _expandedWindowMinimumSize = MinimumSize;
         Font = new Font("Segoe UI", 9F, FontStyle.Regular);
 
@@ -316,6 +319,23 @@ internal sealed partial class MainForm : Form
                 _expandedWindowMinimumSize.Height);
         }
         Bounds = new Rectangle(placement.Left, placement.Top, placement.Width, placement.Height);
+
+        _agentPanel = new AgentPanel(
+            () => _workspaceRoot,
+            () => _document?.FilePath,
+            async () => _editorHost?.IsDocumentLoaded == true
+                ? (await _editorHost.RequestSnapshotAsync()).Markdown
+                : string.Empty,
+            markdown =>
+            {
+                if (_editorHost?.IsDocumentLoaded != true) return;
+                _editorHost.ExecuteCommand("pasteMarkdown", $"\n\n{markdown.Trim()}\n");
+                SetStatus("Agent 建议已插入，请复核后保存。");
+            },
+            _settings.Ai,
+            _aiSessionApiKey,
+            apiKey => _aiSessionApiKey = apiKey,
+            SaveSettings);
 
         _sidebarSplit = CreateSidebarSplit(placement.WorkspaceWidth, placement.OutlineWidth);
 
@@ -514,6 +534,7 @@ internal sealed partial class MainForm : Form
         }
         startupTasks.Add(InitializeStartupContentAsync());
         await Task.WhenAll(startupTasks);
+        await _agentPanel.RefreshContextAsync();
         _logger.Info($"Startup: editor and initial content ready after {startupTimer.ElapsedMilliseconds} ms.");
 
         if (_settings.General.AutoCheckForUpdates)
@@ -670,6 +691,10 @@ internal sealed partial class MainForm : Form
             Bounds.Height,
             EffectiveDpi = _effectiveDpi,
             WorkspaceWidth = _sidebarSplit.SplitterDistance,
+            AgentWidth = _agentSplit.Panel2Collapsed
+                ? 0
+                : _agentSplit.ClientSize.Width - _agentSplit.SplitterDistance - _agentSplit.SplitterWidth,
+            AgentVisible = !_agentSplit.Panel2Collapsed,
             OutlineWidth = _outlineDetached ? _detachedOutlineWidth : 0,
             OutlineDetached = _outlineDetached,
             WindowState = WindowState.ToString(),

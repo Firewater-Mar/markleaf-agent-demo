@@ -30,11 +30,32 @@ internal sealed partial class MainForm
         };
         _sidebarMinimumWidth = split.Panel1MinSize;
         split.Panel1.Controls.Add(CreateSidebarPanel());
-        split.Panel2.Controls.Add(CreateOutlineSplit(outlineWidth));
+        split.Panel2.Controls.Add(CreateAgentSplit(CreateOutlineSplit(outlineWidth)));
         split.HandleCreated += (_, _) => SetSplitterDistanceSafely(split, sidebarWidth, FixedPanel.Panel1);
         split.LiveSplitterMoved += OnSidebarSplitterMoved;
         split.LiveSplitterDragCompleted += OnSidebarSplitterMoved;
         return split;
+    }
+
+    private Control CreateAgentSplit(Control editorAndOutline)
+    {
+        var split = new LiveSplitContainer
+        {
+            Dock = DockStyle.Fill,
+            Size = new Size(1100, 740),
+            Orientation = Orientation.Vertical,
+            FixedPanel = FixedPanel.Panel2,
+            SplitterWidth = 1,
+            Panel1MinSize = this.ScaleForDpi(520),
+            Panel2MinSize = this.ScaleForDpi(350),
+        };
+        split.Panel1.Controls.Add(editorAndOutline);
+        split.Panel2.Controls.Add(_agentPanel);
+        split.HandleCreated += (_, _) => SetSplitterDistanceSafely(
+            split,
+            this.ScaleForDpi(390),
+            FixedPanel.Panel2);
+        return _agentSplit = split;
     }
 
     private LiveSplitContainer CreateOutlineSplit(int outlineWidth)

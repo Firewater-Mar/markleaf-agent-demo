@@ -1,6 +1,5 @@
 using MarkLeaf.Services.Proof;
 using MarkLeaf.Services.AI;
-using MarkLeaf.UI.Proof;
 using System.IO.Compression;
 
 namespace MarkLeaf.Tests;
@@ -114,7 +113,10 @@ public sealed class ProofWorkflowTests
             new AiSource("S1", "research.md", 8, 14, "source", 3),
         };
 
-        var result = ProofWorkspaceForm.BuildPortableAgentMarkdown("关键结论。[S1]", sources);
+        var result = PortableCitationService.ConvertAgentSourcesToFootnotes(
+            "关键结论。[S1]",
+            sources,
+            new DateTime(2026, 9, 16, 12, 0, 0));
 
         Assert.IsFalse(result.Contains("[S1]", StringComparison.Ordinal));
         StringAssert.Contains(result, "[^ml-");

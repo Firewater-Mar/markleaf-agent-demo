@@ -12,15 +12,11 @@ MarkLeaf 是轻量化 Markdown 可视化编辑器，提供 Windows/macOS 原生�
 
 ## 功能介绍
 
-### MarkLeaf Proof 可信文档工作台
+### MarkLeaf Agent 可信文档工作台
 
-MarkLeaf 现在提供一个基于真实资料的文档工作区，支持任务要求识别、要求覆盖检查、结论与证据关联、文档体检、受约束的 AI 修改、人工确认以及可审计的交付材料。增强数据保存在 Markdown 文件旁的 `.markleaf` 文件夹中，生成的来源引用会转换为可移植的 Markdown 脚注。
+Windows 版打开后就是 Agent 工作台：左侧管理项目与资料，中间编辑 Markdown，右侧 Agent 始终可用。它支持任务要求识别、相关资料检索、来源脚注、文档体检、人工确认修改和配套材料导出。项目数据保存在 Markdown 文件旁的 `.markleaf` 文件夹中，正文仍是开放、可移植的标准 Markdown。
 
-使用方法见 [MarkLeaf Proof 使用说明](docs/markleaf-proof.md)。
-
-### MarkLeaf AI 可信文档助手（开发中）
-
-Windows 版已加入首个 AI MVP：可基于当前文档和工作区 Markdown/TXT 资料生成带来源编号的回答、草稿、大纲或一致性审查结果。生成内容必须经过预览和用户确认才会插入文档；API Key 不写入设置文件。支持本地 Ollama 及兼容 OpenAI Chat Completions API 的服务。详见 [AI 助手说明](docs/ai-assistant.md)。
+使用方法见 [MarkLeaf Agent 使用说明](docs/markleaf-agent.md)。
 
 ### 丰富的排版样式与配色方案
 
