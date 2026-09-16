@@ -82,6 +82,8 @@ public sealed class AppSettings
 
     public ExportSettings Export { get; set; } = new();
 
+    public AiSettings Ai { get; set; } = new();
+
     public ShortcutSettings Shortcut { get; set; } = new();
 
     public string MarkdownStyle { get; set; } = "serif";
@@ -101,11 +103,28 @@ public sealed class AppSettings
             General = new GeneralSettings(),
             Image = new ImageSettings(),
             Export = new ExportSettings(),
+            Ai = new AiSettings(),
             Shortcut = new ShortcutSettings(),
             MarkdownStyle = "sans-serif",
             ColorTheme = "apple-blue",
         };
     }
+}
+
+public sealed class AiSettings
+{
+    /// <summary>
+    /// OpenAI-compatible API base URL. Ollama exposes this protocol at /v1.
+    /// </summary>
+    public string Endpoint { get; set; } = "http://localhost:11434/v1";
+
+    public string Model { get; set; } = "qwen3:4b";
+
+    public int MaxSources { get; set; } = 8;
+
+    public bool IncludeCurrentDocument { get; set; } = true;
+
+    public bool IncludeWorkspace { get; set; } = true;
 }
 
 /// <summary>

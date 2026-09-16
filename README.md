@@ -12,6 +12,10 @@ MarkLeaf 是轻量化 Markdown 可视化编辑器，提供 Windows/macOS 原生�
 
 ## 功能介绍
 
+### MarkLeaf AI 可信文档助手（开发中）
+
+Windows 版已加入首个 AI MVP：可基于当前文档和工作区 Markdown/TXT 资料生成带来源编号的回答、草稿、大纲或一致性审查结果。生成内容必须经过预览和用户确认才会插入文档；API Key 不写入设置文件。支持本地 Ollama 及兼容 OpenAI Chat Completions API 的服务。详见 [AI 助手说明](docs/ai-assistant.md)。
+
 ### 丰富的排版样式与配色方案
 
 #### **排版样式**

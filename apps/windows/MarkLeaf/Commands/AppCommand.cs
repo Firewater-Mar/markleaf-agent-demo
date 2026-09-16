@@ -145,6 +145,7 @@ public enum AppCommand
     ShowColorThemes = 0x1410,
     ShowTypographyStyles = 0x1411,
     ShowThemeSettings = 0x1412,
+    ShowAiAssistant = 0x1413,
 
     InsertAlertNote = 0x1331,
     InsertAlertTip = 0x1332,

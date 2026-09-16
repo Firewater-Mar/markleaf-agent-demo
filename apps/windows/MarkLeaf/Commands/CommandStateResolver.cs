@@ -15,6 +15,7 @@ public static class CommandStateResolver
         return command switch
         {
             AppCommand.Exit or AppCommand.ShowShortcuts or AppCommand.ShowPreferences
+                or AppCommand.ShowAiAssistant
                 or AppCommand.ShowAbout or AppCommand.ShowChangelog or AppCommand.ShowWelcome
                 or AppCommand.LearnMarkdown
                 or AppCommand.CheckForUpdates

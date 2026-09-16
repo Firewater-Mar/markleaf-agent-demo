@@ -165,6 +165,7 @@ internal sealed partial class MainForm : Form
     private string _markdownStyle = "serif";
     private string _colorTheme = "white";
     private int _zoomPercent = 100;
+    private string _aiSessionApiKey = Environment.GetEnvironmentVariable("MARKLEAF_AI_API_KEY") ?? string.Empty;
 
     public MainForm(
         LaunchOptions options,

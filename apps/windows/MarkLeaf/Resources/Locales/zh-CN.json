@@ -54,6 +54,7 @@
   "menu.edit.find": "查找(&F)\tCtrl+F",
   "menu.edit.replace": "替换(&H)\tCtrl+H",
   "menu.edit.selectAll": "全选(&A)\tCtrl+A",
+  "menu.edit.aiAssistant": "MarkLeaf AI 助手(&I)...",
 
   "menu.paragraph.label": "段落(&P)",
   "menu.paragraph.paragraph": "正文(&P)",

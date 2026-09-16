@@ -611,6 +611,8 @@ internal sealed class NativeMenuService : IDisposable
             AppendMainMenuCommand(menu, AppCommand.Find, Loc.Get("menu.edit.find"));
             AppendMainMenuCommand(menu, AppCommand.Replace, Loc.Get("menu.edit.replace"));
             AppendSeparator(menu);
+            AppendMainMenuCommand(menu, AppCommand.ShowAiAssistant, Loc.Get("menu.edit.aiAssistant"));
+            AppendSeparator(menu);
             AppendMainMenuCommand(menu, AppCommand.SelectAll, Loc.Get("menu.edit.selectAll"));
             return menu;
         }

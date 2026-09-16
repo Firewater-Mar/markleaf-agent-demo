@@ -238,6 +238,9 @@ internal sealed partial class MainForm
             case AppCommand.Replace:
                 OpenFindReplaceDialog(replace: true);
                 break;
+            case AppCommand.ShowAiAssistant:
+                _ = ShowAiAssistantAsync();
+                break;
             case AppCommand.ToggleSourceMode:
                 _editorHost?.ExecuteCommand("toggleSourceMode");
                 break;

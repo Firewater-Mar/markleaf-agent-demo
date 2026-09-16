@@ -99,6 +99,8 @@ public sealed class JsonSettingsService : ISettingsService
         NormalizeImage(settings.Image);
         settings.Export ??= new ExportSettings();
         NormalizeExport(settings.Export);
+        settings.Ai ??= new AiSettings();
+        NormalizeAi(settings.Ai);
         settings.Shortcut ??= new ShortcutSettings();
         NormalizeShortcuts(settings.Shortcut);
         settings.SchemaVersion = AppSettings.CurrentSchemaVersion;
@@ -112,6 +114,8 @@ public sealed class JsonSettingsService : ISettingsService
         NormalizeImage(settings.Image);
         settings.Export ??= new ExportSettings();
         NormalizeExport(settings.Export);
+        settings.Ai ??= new AiSettings();
+        NormalizeAi(settings.Ai);
         settings.Shortcut ??= new ShortcutSettings();
         NormalizeShortcuts(settings.Shortcut);
         settings.SchemaVersion = AppSettings.CurrentSchemaVersion;
@@ -136,6 +140,8 @@ public sealed class JsonSettingsService : ISettingsService
         NormalizeImage(settings.Image);
         settings.Export ??= new ExportSettings();
         NormalizeExport(settings.Export);
+        settings.Ai ??= new AiSettings();
+        NormalizeAi(settings.Ai);
         settings.Shortcut ??= new ShortcutSettings();
         settings.Shortcut.Overrides ??= [];
         settings.Shortcut.Cleared ??= [];
@@ -203,6 +209,15 @@ public sealed class JsonSettingsService : ISettingsService
         export.PdfFooterAlignment ??= "";
         export.Style = string.IsNullOrWhiteSpace(export.Style) ? "serif" : export.Style;
         export.ColorScheme ??= "";
+    }
+
+    private static void NormalizeAi(AiSettings ai)
+    {
+        ai.Endpoint = string.IsNullOrWhiteSpace(ai.Endpoint)
+            ? "http://localhost:11434/v1"
+            : ai.Endpoint.Trim();
+        ai.Model = string.IsNullOrWhiteSpace(ai.Model) ? "qwen3:4b" : ai.Model.Trim();
+        ai.MaxSources = Math.Clamp(ai.MaxSources, 1, 12);
     }
 
     private static string NormalizeExportFormat(string? format) =>
