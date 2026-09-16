@@ -125,6 +125,11 @@ public sealed class AiSettings
     public bool IncludeCurrentDocument { get; set; } = true;
 
     public bool IncludeWorkspace { get; set; } = true;
+
+    /// <summary>local, hybrid, or cloud. This controls privacy messaging and confirmation.</summary>
+    public string PrivacyMode { get; set; } = "local";
+
+    public bool ConfirmBeforeCloud { get; set; } = true;
 }
 
 /// <summary>

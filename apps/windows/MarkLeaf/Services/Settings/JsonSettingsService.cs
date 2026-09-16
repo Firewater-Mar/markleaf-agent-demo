@@ -218,6 +218,7 @@ public sealed class JsonSettingsService : ISettingsService
             : ai.Endpoint.Trim();
         ai.Model = string.IsNullOrWhiteSpace(ai.Model) ? "qwen3:4b" : ai.Model.Trim();
         ai.MaxSources = Math.Clamp(ai.MaxSources, 1, 12);
+        ai.PrivacyMode = ai.PrivacyMode is "hybrid" or "cloud" ? ai.PrivacyMode : "local";
     }
 
     private static string NormalizeExportFormat(string? format) =>

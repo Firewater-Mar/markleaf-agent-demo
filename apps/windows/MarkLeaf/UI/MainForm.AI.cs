@@ -1,4 +1,4 @@
-using MarkLeaf.UI.Dialogs;
+using MarkLeaf.UI.Proof;
 
 namespace MarkLeaf.UI;
 
@@ -31,18 +31,25 @@ internal sealed partial class MainForm
             return;
         }
 
-        using var dialog = new AiAssistantDialog(
-            _workspaceRoot,
+        var projectRoot = !string.IsNullOrWhiteSpace(_workspaceRoot) && Directory.Exists(_workspaceRoot)
+            ? _workspaceRoot
+            : Path.GetDirectoryName(_document?.FilePath);
+        if (string.IsNullOrWhiteSpace(projectRoot)) return;
+
+        using var dialog = new ProofWorkspaceForm(
+            projectRoot,
             _document?.FilePath,
-            currentMarkdown,
-            _settings.Ai,
-            _aiSessionApiKey,
+            async () => _editorHost?.IsDocumentLoaded == true
+                ? (await _editorHost.RequestSnapshotAsync()).Markdown
+                : string.Empty,
             markdown =>
             {
                 if (_editorHost?.IsDocumentLoaded != true) return;
                 _editorHost.ExecuteCommand("pasteMarkdown", $"\n\n{markdown.Trim()}\n");
-                SetStatus("AI 内容已插入，请复核后保存。");
+                SetStatus("Proof 建议已插入，请复核后保存。");
             },
+            _settings.Ai,
+            _aiSessionApiKey,
             apiKey => _aiSessionApiKey = apiKey,
             SaveSettings);
         ShowModal(() => dialog.ShowDialog(this));

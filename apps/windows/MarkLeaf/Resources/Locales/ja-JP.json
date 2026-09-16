@@ -54,7 +54,7 @@
   "menu.edit.find": "検索(&F)\tCtrl+F",
   "menu.edit.replace": "置換(&H)\tCtrl+H",
   "menu.edit.selectAll": "すべて選択(&A)\tCtrl+A",
-  "menu.edit.aiAssistant": "MarkLeaf AI アシスタント(&I)...",
+  "menu.edit.aiAssistant": "MarkLeaf Proof ワークスペース(&I)...",
 
   "menu.paragraph.label": "段落(&P)",
   "menu.paragraph.paragraph": "本文(&P)",
