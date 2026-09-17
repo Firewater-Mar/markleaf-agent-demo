@@ -1,22 +1,21 @@
 using MarkLeaf.Services.AI;
 using MarkLeaf.Services.Proof;
 using MarkLeaf.Services.Settings;
+using Microsoft.Web.WebView2.Core;
+using Microsoft.Web.WebView2.WinForms;
 using System.Diagnostics;
+using System.Text.Json;
 
 namespace MarkLeaf.UI.Agent;
 
 internal sealed class AgentPanel : UserControl
 {
-    private static readonly Color Canvas = Color.FromArgb(247, 249, 248);
     private static readonly Color Surface = Color.FromArgb(255, 255, 255);
-    private static readonly Color SurfaceMuted = Color.FromArgb(238, 243, 241);
-    private static readonly Color Border = Color.FromArgb(214, 223, 219);
-    private static readonly Color Ink = Color.FromArgb(27, 41, 36);
-    private static readonly Color Muted = Color.FromArgb(91, 108, 101);
-    private static readonly Color Accent = Color.FromArgb(24, 105, 86);
-    private static readonly Color AccentSoft = Color.FromArgb(216, 237, 230);
-    private static readonly Color Danger = Color.FromArgb(174, 62, 57);
-    private static readonly Color Warning = Color.FromArgb(166, 102, 31);
+    private static readonly Color Canvas = Color.FromArgb(247, 248, 247);
+    private static readonly Color Border = Color.FromArgb(220, 227, 223);
+    private static readonly Color Ink = Color.FromArgb(22, 33, 29);
+    private static readonly Color Muted = Color.FromArgb(93, 107, 101);
+    private static readonly Color Accent = Color.FromArgb(23, 107, 85);
 
     private readonly Func<string?> _getWorkspaceRoot;
     private readonly Func<string?> _getDocumentPath;
@@ -25,30 +24,12 @@ internal sealed class AgentPanel : UserControl
     private readonly AiSettings _settings;
     private readonly Action<string> _rememberApiKey;
     private readonly Action _saveSettings;
+    private readonly string _webView2UserDataDirectory;
     private readonly ProofProjectStore _store = new();
     private readonly OpenAiCompatibleClient _client = new();
+    private readonly WebView2 _webView = new();
+    private readonly Label _loadingLabel = new();
 
-    private readonly Label _contextLabel = new();
-    private readonly Label _modelLabel = new();
-    private readonly Panel _contentHost = new();
-    private readonly Button _agentTab = new();
-    private readonly Button _projectTab = new();
-    private readonly Button _checkTab = new();
-    private readonly RichTextBox _conversation = new();
-    private readonly TextBox _prompt = new();
-    private readonly Button _sendButton = new();
-    private readonly Button _cancelButton = new();
-    private readonly Button _applyButton = new();
-    private readonly Label _agentStatus = new();
-    private readonly Label _projectSummary = new();
-    private readonly ListView _requirementList = new();
-    private readonly ListView _sourceList = new();
-    private readonly Label _checkSummary = new();
-    private readonly ListView _checkList = new();
-
-    private readonly Panel _agentPage;
-    private readonly Panel _projectPage;
-    private readonly Panel _checkPage;
     private ProofProject _project = new();
     private ProofCiResult? _lastCiResult;
     private string? _loadedRoot;
@@ -56,6 +37,8 @@ internal sealed class AgentPanel : UserControl
     private string _lastAnswer = string.Empty;
     private IReadOnlyList<AiSource> _lastSources = [];
     private CancellationTokenSource? _cancellation;
+    private bool _webReady;
+    private bool _webViewInitializing;
 
     public AgentPanel(
         Func<string?> getWorkspaceRoot,
@@ -75,19 +58,35 @@ internal sealed class AgentPanel : UserControl
         _sessionApiKey = sessionApiKey;
         _rememberApiKey = rememberApiKey;
         _saveSettings = saveSettings;
+        _webView2UserDataDirectory = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "MarkLeaf",
+            "WebView2",
+            "Agent");
 
         Dock = DockStyle.Fill;
         BackColor = Canvas;
-        MinimumSize = new Size(350, 0);
-        Font = new Font("Segoe UI", 9F);
+        MinimumSize = new Size(320, 0);
         AutoScaleMode = AutoScaleMode.Dpi;
 
-        _agentPage = BuildAgentPage();
-        _projectPage = BuildProjectPage();
-        _checkPage = BuildCheckPage();
-        Controls.Add(BuildRoot());
-        ShowPage(_agentPage, _agentTab);
-        AppendMessage("MarkLeaf Agent", "告诉我你要完成什么文档任务。我会先查看当前文档和项目资料，再提出可核对的修改建议。", Accent);
+        _webView.Dock = DockStyle.Fill;
+        _webView.Visible = false;
+        _webView.DefaultBackgroundColor = Canvas;
+        _webView.CreationProperties = new CoreWebView2CreationProperties
+        {
+            UserDataFolder = _webView2UserDataDirectory,
+        };
+
+        _loadingLabel.Dock = DockStyle.Fill;
+        _loadingLabel.Text = "正在准备 MarkLeaf Agent…";
+        _loadingLabel.TextAlign = ContentAlignment.MiddleCenter;
+        _loadingLabel.ForeColor = Muted;
+        _loadingLabel.BackColor = Canvas;
+        _loadingLabel.Font = new Font("Segoe UI", 9.5F);
+
+        Controls.Add(_webView);
+        Controls.Add(_loadingLabel);
+        HandleCreated += OnHandleCreated;
     }
 
     public async Task RefreshContextAsync()
@@ -95,370 +94,197 @@ internal sealed class AgentPanel : UserControl
         try
         {
             await EnsureProjectAsync();
-            RefreshProjectViews();
-            UpdateHeader();
+            SendState();
         }
         catch (Exception exception)
         {
-            _contextLabel.Text = "项目读取失败";
-            _agentStatus.Text = exception.Message;
+            SendError($"项目读取失败：{exception.Message}");
         }
     }
 
-    public void FocusComposer()
+    public void FocusComposer() => SendToWeb(new { type = "focus" });
+
+    protected override void Dispose(bool disposing)
     {
-        ShowPage(_agentPage, _agentTab);
-        _prompt.Focus();
+        if (disposing)
+        {
+            HandleCreated -= OnHandleCreated;
+            _cancellation?.Cancel();
+            _cancellation?.Dispose();
+            if (_webView.CoreWebView2 is not null)
+                _webView.CoreWebView2.WebMessageReceived -= OnWebMessageReceived;
+            _webView.Dispose();
+            _loadingLabel.Dispose();
+        }
+        base.Dispose(disposing);
     }
 
-    private Control BuildRoot()
+    private async void OnHandleCreated(object? sender, EventArgs eventArgs)
     {
-        var root = new TableLayoutPanel
+        if (_webViewInitializing || _webReady || IsDisposed) return;
+        _webViewInitializing = true;
+        try
         {
-            Dock = DockStyle.Fill,
-            Margin = Padding.Empty,
-            Padding = Padding.Empty,
-            ColumnCount = 1,
-            RowCount = 3,
-            BackColor = Canvas,
-        };
-        root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 76));
-        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 43));
-        root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        root.Controls.Add(BuildHeader(), 0, 0);
-        root.Controls.Add(BuildTabs(), 0, 1);
-        root.Controls.Add(_contentHost, 0, 2);
-        return root;
+            Directory.CreateDirectory(_webView2UserDataDirectory);
+            await _webView.EnsureCoreWebView2Async();
+            if (IsDisposed || _webView.CoreWebView2 is null) return;
+
+            var browserSettings = _webView.CoreWebView2.Settings;
+            browserSettings.AreDefaultContextMenusEnabled = false;
+            browserSettings.AreDevToolsEnabled = false;
+            browserSettings.IsStatusBarEnabled = false;
+            browserSettings.IsZoomControlEnabled = false;
+            browserSettings.IsPinchZoomEnabled = false;
+            _webView.CoreWebView2.WebMessageReceived += OnWebMessageReceived;
+            _webView.NavigateToString(AgentPanelPage.Html);
+        }
+        catch (Exception exception)
+        {
+            _loadingLabel.Text = $"Agent 界面无法启动\n\n{exception.Message}";
+            _loadingLabel.ForeColor = Color.FromArgb(179, 67, 62);
+        }
+        finally
+        {
+            _webViewInitializing = false;
+        }
     }
 
-    private Control BuildHeader()
+    private async void OnWebMessageReceived(object? sender, CoreWebView2WebMessageReceivedEventArgs eventArgs)
     {
-        var header = new TableLayoutPanel
+        try
         {
-            Dock = DockStyle.Fill,
-            Margin = Padding.Empty,
-            Padding = new Padding(14, 11, 12, 8),
-            ColumnCount = 3,
-            RowCount = 2,
-            BackColor = Surface,
-        };
-        header.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 38));
-        header.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        header.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-        header.RowStyles.Add(new RowStyle(SizeType.Absolute, 27));
-        header.RowStyles.Add(new RowStyle(SizeType.Absolute, 24));
-        var mark = new Label
-        {
-            Dock = DockStyle.Fill,
-            Margin = new Padding(0, 0, 8, 0),
-            Text = "M",
-            TextAlign = ContentAlignment.MiddleCenter,
-            BackColor = Accent,
-            ForeColor = Color.White,
-            Font = new Font("Segoe UI", 12F, FontStyle.Bold),
-        };
-        var title = new Label
-        {
-            Dock = DockStyle.Fill,
-            Text = "MarkLeaf Agent",
-            TextAlign = ContentAlignment.MiddleLeft,
-            ForeColor = Ink,
-            Font = new Font("Segoe UI", 11F, FontStyle.Bold),
-        };
-        _contextLabel.Dock = DockStyle.Fill;
-        _contextLabel.Text = "正在读取上下文";
-        _contextLabel.TextAlign = ContentAlignment.MiddleLeft;
-        _contextLabel.ForeColor = Muted;
-        _contextLabel.AutoEllipsis = true;
-        _modelLabel.Dock = DockStyle.Fill;
-        _modelLabel.TextAlign = ContentAlignment.MiddleRight;
-        _modelLabel.ForeColor = Muted;
-        _modelLabel.Font = new Font("Segoe UI", 8F);
-        var settings = CreateTextButton("设置");
-        settings.Margin = new Padding(8, 0, 0, 0);
-        settings.Click += (_, _) => ShowAgentSettings();
-        header.Controls.Add(mark, 0, 0);
-        header.SetRowSpan(mark, 2);
-        header.Controls.Add(title, 1, 0);
-        header.Controls.Add(_contextLabel, 1, 1);
-        header.Controls.Add(settings, 2, 0);
-        header.Controls.Add(_modelLabel, 2, 1);
-        return header;
-    }
-
-    private Control BuildTabs()
-    {
-        var tabs = new TableLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            Margin = Padding.Empty,
-            Padding = new Padding(12, 4, 12, 4),
-            ColumnCount = 3,
-            RowCount = 1,
-            BackColor = Surface,
-        };
-        for (var index = 0; index < 3; index++) tabs.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33.333F));
-        ConfigureTab(_agentTab, "Agent", (_, _) => ShowPage(_agentPage, _agentTab));
-        ConfigureTab(_projectTab, "项目上下文", async (_, _) =>
-        {
-            await RefreshContextAsync();
-            ShowPage(_projectPage, _projectTab);
-        });
-        ConfigureTab(_checkTab, "体检", async (_, _) =>
-        {
-            await RunDocumentCheckAsync();
-            ShowPage(_checkPage, _checkTab);
-        });
-        tabs.Controls.Add(_agentTab, 0, 0);
-        tabs.Controls.Add(_projectTab, 1, 0);
-        tabs.Controls.Add(_checkTab, 2, 0);
-        return tabs;
-    }
-
-    private Panel BuildAgentPage()
-    {
-        var page = new Panel { Dock = DockStyle.Fill, BackColor = Canvas, Padding = new Padding(12, 10, 12, 12) };
-        var layout = new TableLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            Margin = Padding.Empty,
-            ColumnCount = 1,
-            RowCount = 5,
-            BackColor = Canvas,
-        };
-        layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 67));
-        layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 27));
-        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 92));
-        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 42));
-        layout.Controls.Add(BuildQuickActions(), 0, 0);
-
-        _conversation.Dock = DockStyle.Fill;
-        _conversation.Margin = new Padding(0, 0, 0, 8);
-        _conversation.ReadOnly = true;
-        _conversation.BorderStyle = BorderStyle.FixedSingle;
-        _conversation.BackColor = Surface;
-        _conversation.ForeColor = Ink;
-        _conversation.Font = new Font("Segoe UI", 9.5F);
-        _conversation.DetectUrls = false;
-        layout.Controls.Add(_conversation, 0, 1);
-
-        _agentStatus.Dock = DockStyle.Fill;
-        _agentStatus.Text = "不会自动修改文档";
-        _agentStatus.ForeColor = Muted;
-        _agentStatus.AutoEllipsis = true;
-        layout.Controls.Add(_agentStatus, 0, 2);
-
-        _prompt.Dock = DockStyle.Fill;
-        _prompt.Margin = Padding.Empty;
-        _prompt.Multiline = true;
-        _prompt.ScrollBars = ScrollBars.Vertical;
-        _prompt.AcceptsReturn = true;
-        _prompt.PlaceholderText = "例如：根据现有资料补写应用价值，并标注每个关键结论的来源";
-        _prompt.Font = new Font("Segoe UI", 10F);
-        _prompt.BackColor = Surface;
-        _prompt.ForeColor = Ink;
-        _prompt.KeyDown += async (_, eventArgs) =>
-        {
-            if (eventArgs.KeyCode == Keys.Enter && eventArgs.Control)
+            using var document = JsonDocument.Parse(eventArgs.WebMessageAsJson);
+            var root = document.RootElement;
+            if (!root.TryGetProperty("action", out var actionValue)) return;
+            switch (actionValue.GetString())
             {
-                eventArgs.SuppressKeyPress = true;
-                await RunAgentAsync();
+                case "ready":
+                    _webReady = true;
+                    _loadingLabel.Visible = false;
+                    _webView.Visible = true;
+                    _webView.BringToFront();
+                    BeginInvoke(NormalizeHostSplit);
+                    await RefreshContextAsync();
+                    break;
+                case "send":
+                    var prompt = root.TryGetProperty("prompt", out var promptValue)
+                        ? promptValue.GetString() ?? string.Empty
+                        : string.Empty;
+                    var mode = root.TryGetProperty("mode", out var modeValue)
+                        ? modeValue.GetString() ?? "plan"
+                        : "plan";
+                    await RunAgentAsync(prompt, mode);
+                    break;
+                case "cancel":
+                    _cancellation?.Cancel();
+                    break;
+                case "apply":
+                    await ApplyLastAnswerAsync();
+                    break;
+                case "import_requirements":
+                    await ImportRequirementsAsync();
+                    break;
+                case "import_sources":
+                    await ImportSourcesAsync();
+                    break;
+                case "run_check":
+                    await RunDocumentCheckAsync(announce: true);
+                    break;
+                case "export":
+                    await ExportCompanionFilesAsync();
+                    break;
+                case "settings":
+                    ShowAgentSettings();
+                    break;
             }
-        };
-        layout.Controls.Add(_prompt, 0, 3);
-
-        var actions = new FlowLayoutPanel
+        }
+        catch (Exception exception)
         {
-            Dock = DockStyle.Fill,
-            Margin = new Padding(0, 7, 0, 0),
-            FlowDirection = FlowDirection.RightToLeft,
-            WrapContents = false,
-            BackColor = Canvas,
-        };
-        ConfigureButton(_sendButton, "发送", primary: true);
-        _sendButton.Click += async (_, _) => await RunAgentAsync();
-        ConfigureButton(_cancelButton, "停止", primary: false);
-        _cancelButton.Enabled = false;
-        _cancelButton.Click += (_, _) => _cancellation?.Cancel();
-        ConfigureButton(_applyButton, "应用到文档", primary: false);
-        _applyButton.Enabled = false;
-        _applyButton.Click += async (_, _) => await ApplyLastAnswerAsync();
-        actions.Controls.Add(_sendButton);
-        actions.Controls.Add(_cancelButton);
-        actions.Controls.Add(_applyButton);
-        layout.Controls.Add(actions, 0, 4);
-        page.Controls.Add(layout);
-        return page;
+            SendError(exception.Message);
+            SetBusy(false, string.Empty);
+        }
     }
 
-    private Control BuildQuickActions()
+    private async Task RunAgentAsync(string request, string mode)
     {
-        var quick = new FlowLayoutPanel
+        if (string.IsNullOrWhiteSpace(request))
         {
-            Dock = DockStyle.Fill,
-            Margin = Padding.Empty,
-            FlowDirection = FlowDirection.LeftToRight,
-            WrapContents = true,
-            BackColor = Canvas,
-        };
-        quick.Controls.Add(CreatePromptButton("补写", "根据任务要求和现有资料，补写当前文档最欠缺的部分。"));
-        quick.Controls.Add(CreatePromptButton("找证据", "检查当前文档的重要结论，为缺少来源的内容寻找证据。"));
-        quick.Controls.Add(CreatePromptButton("评委审查", "从评委视角审查当前文档，指出最影响评分的问题。"));
-        quick.Controls.Add(CreatePromptButton("一致性", "检查产品名称、术语、日期、版本和关键数字是否前后一致。"));
-        return quick;
-    }
-
-    private Panel BuildProjectPage()
-    {
-        var page = new Panel { Dock = DockStyle.Fill, BackColor = Canvas, Padding = new Padding(12, 10, 12, 12) };
-        var layout = new TableLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            Margin = Padding.Empty,
-            ColumnCount = 1,
-            RowCount = 5,
-            BackColor = Canvas,
-        };
-        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 46));
-        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 34));
-        layout.RowStyles.Add(new RowStyle(SizeType.Percent, 52));
-        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 34));
-        layout.RowStyles.Add(new RowStyle(SizeType.Percent, 48));
-        var actions = new FlowLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            Margin = Padding.Empty,
-            FlowDirection = FlowDirection.LeftToRight,
-            WrapContents = false,
-            BackColor = Canvas,
-        };
-        var importRequirements = CreateButton("导入要求", primary: true);
-        importRequirements.Click += async (_, _) => await ImportRequirementsAsync();
-        var importSources = CreateButton("添加资料", primary: false);
-        importSources.Click += async (_, _) => await ImportSourcesAsync();
-        actions.Controls.Add(importRequirements);
-        actions.Controls.Add(importSources);
-        layout.Controls.Add(actions, 0, 0);
-        _projectSummary.Dock = DockStyle.Fill;
-        _projectSummary.ForeColor = Muted;
-        _projectSummary.AutoEllipsis = true;
-        layout.Controls.Add(_projectSummary, 0, 1);
-        ConfigureList(_requirementList);
-        _requirementList.Columns.Add("要求", 220);
-        _requirementList.Columns.Add("状态", 80);
-        layout.Controls.Add(_requirementList, 0, 2);
-        layout.Controls.Add(SectionLabel("资料"), 0, 3);
-        ConfigureList(_sourceList);
-        _sourceList.Columns.Add("资料", 170);
-        _sourceList.Columns.Add("索引状态", 180);
-        layout.Controls.Add(_sourceList, 0, 4);
-        page.Controls.Add(layout);
-        return page;
-    }
-
-    private Panel BuildCheckPage()
-    {
-        var page = new Panel { Dock = DockStyle.Fill, BackColor = Canvas, Padding = new Padding(12, 10, 12, 12) };
-        var layout = new TableLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            Margin = Padding.Empty,
-            ColumnCount = 1,
-            RowCount = 3,
-            BackColor = Canvas,
-        };
-        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 44));
-        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 48));
-        layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        var run = CreateButton("重新体检", primary: true);
-        run.Click += async (_, _) => await RunDocumentCheckAsync();
-        var export = CreateButton("导出配套材料", primary: false);
-        export.Click += async (_, _) => await ExportCompanionFilesAsync();
-        var toolbar = new FlowLayoutPanel { Dock = DockStyle.Fill, Margin = Padding.Empty, BackColor = Canvas };
-        toolbar.Controls.Add(run);
-        toolbar.Controls.Add(export);
-        layout.Controls.Add(toolbar, 0, 0);
-        _checkSummary.Dock = DockStyle.Fill;
-        _checkSummary.Padding = new Padding(10, 8, 10, 8);
-        _checkSummary.BackColor = AccentSoft;
-        _checkSummary.ForeColor = Ink;
-        _checkSummary.Font = new Font("Segoe UI", 9F, FontStyle.Bold);
-        layout.Controls.Add(_checkSummary, 0, 1);
-        ConfigureList(_checkList);
-        _checkList.Columns.Add("状态", 82);
-        _checkList.Columns.Add("问题", 190);
-        _checkList.Columns.Add("说明", 260);
-        layout.Controls.Add(_checkList, 0, 2);
-        page.Controls.Add(layout);
-        return page;
-    }
-
-    private async Task RunAgentAsync()
-    {
-        if (string.IsNullOrWhiteSpace(_prompt.Text))
-        {
-            _agentStatus.Text = "先输入你要完成的任务";
-            _prompt.Focus();
+            SendToWeb(new { type = "toast", message = "先描述要完成的文档任务" });
             return;
         }
+
         try
         {
             await EnsureProjectAsync();
+            _cancellation = new CancellationTokenSource();
+            SetBusy(true, "正在读取当前文档", cancellable: true);
             var markdown = await _getCurrentMarkdown();
             if (string.IsNullOrWhiteSpace(markdown) && _project.Sources.Count == 0)
-                throw new InvalidOperationException("请先打开一份文档，或在“项目上下文”中添加资料。");
+                throw new InvalidOperationException("请先打开一份文档，或在“上下文”中添加资料。");
+
             if (ShouldConfirmCloud() && MessageBox.Show(
                     FindForm(),
                     "这次任务会把命中的资料片段和你的要求发送到所配置的远程模型。是否继续？",
                     "确认发送",
                     MessageBoxButtons.YesNo,
                     MessageBoxIcon.Question) != DialogResult.Yes)
+            {
+                SendToWeb(new { type = "toast", message = "已取消，没有发送资料" });
                 return;
+            }
 
-            var request = _prompt.Text.Trim();
-            AppendMessage("你", request, Ink);
-            _cancellation = new CancellationTokenSource();
-            SetBusy(true, "正在查找相关资料");
             _lastSources = ProofSourceQueryService.BuildSources(
                 _project,
                 markdown,
                 Path.GetFileName(_getDocumentPath()) ?? "当前文档",
-                request,
+                request.Trim(),
                 _settings.MaxSources);
-            if (_lastSources.Count == 0) throw new InvalidOperationException("没有找到可供 Agent 使用的文本资料。");
-            _agentStatus.Text = $"已找到 {_lastSources.Count} 个相关片段，正在调用 {_settings.Model}";
+            if (_lastSources.Count == 0)
+                throw new InvalidOperationException("没有找到可供 Agent 使用的文本资料。");
+
+            SendToWeb(new
+            {
+                type = "activity",
+                label = $"已找到 {_lastSources.Count} 个相关片段",
+                detail = $"正在调用 {_settings.Model}",
+            });
+
+            var isPlan = string.Equals(mode, "plan", StringComparison.OrdinalIgnoreCase);
+            var instruction = isPlan
+                ? "只分析并给出分步计划。指出依据、风险和需要用户确认的事项，不生成可直接插入正文的完整段落"
+                : "生成可直接审阅的 Markdown 修改建议。保持原文风格，为重要事实标注来源，并明确资料不足之处";
             _lastAnswer = await _client.CompleteAsync(
                 _settings.Endpoint,
                 _settings.Model,
                 _sessionApiKey,
-                "分析任务并提出可直接审阅的 Markdown 修改建议",
-                request,
+                instruction,
+                request.Trim(),
                 _lastSources,
                 _cancellation.Token);
-            AppendMessage("Agent", _lastAnswer, Accent);
-            _applyButton.Enabled = true;
-            _prompt.Clear();
-            _agentStatus.Text = $"完成，使用 {_lastSources.Count} 个来源片段。应用前请核对。";
-            AddAudit("Agent 生成建议", request, false);
+
+            SendToWeb(new
+            {
+                type = "assistant",
+                content = _lastAnswer,
+                sources = _lastSources.Select(source => $"{source.Id} · {source.DisplayPath}:{source.StartLine}").ToArray(),
+                canApply = !isPlan,
+            });
+            AddAudit(isPlan ? "Agent 制定计划" : "Agent 生成建议", request.Trim(), false);
             await SaveProjectAsync();
         }
         catch (OperationCanceledException)
         {
-            _agentStatus.Text = "任务已停止，没有修改文档";
+            SendToWeb(new { type = "toast", message = "任务已停止，没有修改文档" });
         }
         catch (Exception exception)
         {
-            AppendMessage("系统", exception.Message, Danger);
-            _agentStatus.Text = "任务没有完成";
+            SendError(exception.Message);
         }
         finally
         {
             _cancellation?.Dispose();
             _cancellation = null;
-            SetBusy(false, _agentStatus.Text);
+            SetBusy(false, string.Empty);
         }
     }
 
@@ -467,23 +293,23 @@ internal sealed class AgentPanel : UserControl
         if (string.IsNullOrWhiteSpace(_lastAnswer)) return;
         if (MessageBox.Show(
                 FindForm(),
-                "确认已经核对建议和来源，并插入到当前光标位置？",
+                "确认已经核对建议和来源，并插入到当前光标位置？\n\n插入后仍可在编辑器中撤销。",
                 "应用 Agent 建议",
                 MessageBoxButtons.YesNo,
                 MessageBoxIcon.Question) != DialogResult.Yes)
             return;
+
         var portable = PortableCitationService.ConvertAgentSourcesToFootnotes(_lastAnswer, _lastSources);
         _insertMarkdown(portable);
         AddAudit("人工采纳 Agent 建议", $"写入 {portable.Length} 个字符", true);
         await SaveProjectAsync();
-        _agentStatus.Text = "已应用到文档，可以使用撤销恢复";
-        _applyButton.Enabled = false;
+        SendToWeb(new { type = "applied" });
+        SendToWeb(new { type = "toast", message = "已应用到文档，可使用撤销恢复" });
     }
 
     private async Task ImportRequirementsAsync()
     {
-        var root = ResolveProjectRoot();
-        if (root is null)
+        if (ResolveProjectRoot() is null)
         {
             ShowOpenProjectMessage();
             return;
@@ -494,8 +320,10 @@ internal sealed class AgentPanel : UserControl
             Filter = "支持的文档|*.md;*.markdown;*.txt;*.docx;*.pdf|所有文件|*.*",
         };
         if (dialog.ShowDialog(FindForm()) != DialogResult.OK) return;
+
         try
         {
+            SetBusy(true, "正在识别任务要求");
             await EnsureProjectAsync();
             var (text, status) = await SourceTextExtractor.ExtractAsync(dialog.FileName);
             if (string.IsNullOrWhiteSpace(text)) throw new InvalidDataException(status);
@@ -504,12 +332,17 @@ internal sealed class AgentPanel : UserControl
             _project.Requirements.AddRange(additions);
             AddAudit("导入任务要求", $"从 {Path.GetFileName(dialog.FileName)} 识别 {additions.Length} 项", true);
             await SaveProjectAsync();
-            await RunDocumentCheckAsync();
-            RefreshProjectViews();
+            await RunDocumentCheckAsync(announce: false);
+            SendState();
+            SendToWeb(new { type = "toast", message = $"已识别 {additions.Length} 项新要求" });
         }
         catch (Exception exception)
         {
-            MessageBox.Show(FindForm(), exception.Message, "导入失败", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            SendError($"导入失败：{exception.Message}");
+        }
+        finally
+        {
+            SetBusy(false, string.Empty);
         }
     }
 
@@ -527,56 +360,78 @@ internal sealed class AgentPanel : UserControl
             Multiselect = true,
         };
         if (dialog.ShowDialog(FindForm()) != DialogResult.OK) return;
-        await EnsureProjectAsync();
-        foreach (var path in dialog.FileNames)
+
+        try
         {
-            if (_project.Sources.Any(source => PathEquals(source.FilePath, path))) continue;
-            try
+            SetBusy(true, "正在索引项目资料");
+            await EnsureProjectAsync();
+            var added = 0;
+            foreach (var path in dialog.FileNames)
             {
-                var (text, status) = await SourceTextExtractor.ExtractAsync(path);
-                var info = new FileInfo(path);
-                _project.Sources.Add(new ProofSource
+                if (_project.Sources.Any(source => PathEquals(source.FilePath, path))) continue;
+                try
                 {
-                    FilePath = path,
-                    DisplayName = info.Name,
-                    Kind = SourceTextExtractor.DetectKind(path),
-                    TrustLevel = GuessTrustLevel(path),
-                    FileModifiedAtUtc = info.LastWriteTimeUtc,
-                    ExtractedText = text,
-                    ExtractionStatus = status,
-                });
-            }
-            catch (Exception exception)
-            {
-                _project.Sources.Add(new ProofSource
+                    var (text, status) = await SourceTextExtractor.ExtractAsync(path);
+                    var info = new FileInfo(path);
+                    _project.Sources.Add(new ProofSource
+                    {
+                        FilePath = path,
+                        DisplayName = info.Name,
+                        Kind = SourceTextExtractor.DetectKind(path),
+                        TrustLevel = GuessTrustLevel(path),
+                        FileModifiedAtUtc = info.LastWriteTimeUtc,
+                        ExtractedText = text,
+                        ExtractionStatus = status,
+                    });
+                }
+                catch (Exception exception)
                 {
-                    FilePath = path,
-                    DisplayName = Path.GetFileName(path),
-                    Kind = SourceTextExtractor.DetectKind(path),
-                    ExtractionStatus = $"索引失败：{exception.Message}",
-                });
+                    _project.Sources.Add(new ProofSource
+                    {
+                        FilePath = path,
+                        DisplayName = Path.GetFileName(path),
+                        Kind = SourceTextExtractor.DetectKind(path),
+                        ExtractionStatus = $"索引失败：{exception.Message}",
+                    });
+                }
+                added++;
             }
+            AddAudit("添加项目资料", $"新增 {added} 项，资料中心现有 {_project.Sources.Count} 项", true);
+            await SaveProjectAsync();
+            SendState();
+            SendToWeb(new { type = "toast", message = added == 0 ? "所选资料已经存在" : $"已添加 {added} 项资料" });
         }
-        AddAudit("添加项目资料", $"资料中心现有 {_project.Sources.Count} 项", true);
-        await SaveProjectAsync();
-        RefreshProjectViews();
+        catch (Exception exception)
+        {
+            SendError($"添加资料失败：{exception.Message}");
+        }
+        finally
+        {
+            SetBusy(false, string.Empty);
+        }
     }
 
-    private async Task RunDocumentCheckAsync()
+    private async Task RunDocumentCheckAsync(bool announce)
     {
         try
         {
+            if (announce) SetBusy(true, "正在检查当前文档");
             await EnsureProjectAsync();
             var markdown = await _getCurrentMarkdown();
             var root = ResolveProjectRoot() ?? Environment.CurrentDirectory;
             _lastCiResult = DocumentCiService.Analyze(markdown, _project, root);
             await SaveProjectAsync();
-            RefreshCheckView();
-            RefreshProjectViews();
+            SendState();
+            if (announce)
+                SendToWeb(new { type = "toast", message = $"检查完成，发现 {_lastCiResult.ErrorCount} 项需处理问题" });
         }
         catch (Exception exception)
         {
-            _checkSummary.Text = exception.Message;
+            SendError($"检查失败：{exception.Message}");
+        }
+        finally
+        {
+            if (announce) SetBusy(false, string.Empty);
         }
     }
 
@@ -584,6 +439,7 @@ internal sealed class AgentPanel : UserControl
     {
         try
         {
+            SetBusy(true, "正在生成配套材料");
             await EnsureProjectAsync();
             var root = ResolveProjectRoot();
             if (root is null)
@@ -595,14 +451,10 @@ internal sealed class AgentPanel : UserControl
             _lastCiResult = DocumentCiService.Analyze(markdown, _project, root);
             var exportDirectory = Path.Combine(root, ".markleaf", "exports");
             var documentName = Path.GetFileName(_getDocumentPath()) ?? "当前文档";
-            var files = await ProofReportBuilder.ExportPackageAsync(
-                exportDirectory,
-                _project,
-                _lastCiResult,
-                documentName);
+            var files = await ProofReportBuilder.ExportPackageAsync(exportDirectory, _project, _lastCiResult, documentName);
             AddAudit("导出配套材料", $"生成 {files.Count} 个 Markdown 文件", true);
             await SaveProjectAsync();
-            RefreshCheckView();
+            SendState();
             if (MessageBox.Show(
                     FindForm(),
                     $"已生成 {files.Count} 个文件：\n{exportDirectory}\n\n是否打开文件夹？",
@@ -615,7 +467,11 @@ internal sealed class AgentPanel : UserControl
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or InvalidOperationException or System.ComponentModel.Win32Exception)
         {
-            MessageBox.Show(FindForm(), exception.Message, "导出失败", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            SendError($"导出失败：{exception.Message}");
+        }
+        finally
+        {
+            SetBusy(false, string.Empty);
         }
     }
 
@@ -631,13 +487,13 @@ internal sealed class AgentPanel : UserControl
         if (string.Equals(_loadedRoot, root, StringComparison.OrdinalIgnoreCase)) return;
         _project = await _store.LoadAsync(root);
         _loadedRoot = root;
+        _lastCiResult = null;
     }
 
     private async Task SaveProjectAsync()
     {
         var root = ResolveProjectRoot();
-        if (root is null) return;
-        await _store.SaveAsync(root, _project);
+        if (root is not null) await _store.SaveAsync(root, _project);
     }
 
     private string? ResolveProjectRoot()
@@ -649,200 +505,97 @@ internal sealed class AgentPanel : UserControl
         return !string.IsNullOrWhiteSpace(directory) && Directory.Exists(directory) ? directory : null;
     }
 
-    private void RefreshProjectViews()
+    private void SendState()
     {
-        UpdateHeader();
-        _requirementList.Items.Clear();
-        foreach (var requirement in _project.Requirements)
+        var root = ResolveProjectRoot();
+        var requirements = _project.Requirements.Select(requirement => new
         {
-            var item = new ListViewItem(requirement.Title);
-            item.SubItems.Add(requirement.IsCovered ? "已覆盖" : "待补充");
-            item.ForeColor = requirement.IsCovered ? Accent : Warning;
-            _requirementList.Items.Add(item);
-        }
-        if (_project.Requirements.Count == 0)
-            _requirementList.Items.Add(new ListViewItem(["尚未导入任务要求", ""]));
+            title = requirement.Title,
+            description = requirement.Description,
+            covered = requirement.IsCovered,
+        }).ToArray();
+        var sources = _project.Sources.Select(source => new
+        {
+            name = source.DisplayName,
+            kind = source.Kind,
+            status = source.ExtractionStatus,
+            trust = source.TrustLevel,
+            ready = !string.IsNullOrWhiteSpace(source.ExtractedText),
+        }).ToArray();
+        var check = _lastCiResult is null
+            ? null
+            : new
+            {
+                coverage = _lastCiResult.CoveragePercent,
+                evidence = _lastCiResult.EvidencePercent,
+                errors = _lastCiResult.ErrorCount,
+                issues = _lastCiResult.Issues.OrderBy(issue => issue.Severity).Select(issue => new
+                {
+                    title = issue.Title,
+                    detail = issue.Detail,
+                    state = issue.Severity switch
+                    {
+                        ProofIssueSeverity.Error => "需处理",
+                        ProofIssueSeverity.Warning => "检查",
+                        ProofIssueSeverity.Passed => "通过",
+                        _ => "提示",
+                    },
+                    tone = issue.Severity switch
+                    {
+                        ProofIssueSeverity.Error => "bad",
+                        ProofIssueSeverity.Warning => "warn",
+                        ProofIssueSeverity.Passed => "good",
+                        _ => string.Empty,
+                    },
+                }).ToArray(),
+            };
 
-        _sourceList.Items.Clear();
-        foreach (var source in _project.Sources)
+        SendToWeb(new
         {
-            var item = new ListViewItem(source.DisplayName);
-            item.SubItems.Add(source.ExtractionStatus);
-            item.ForeColor = string.IsNullOrWhiteSpace(source.ExtractedText) ? Warning : Ink;
-            _sourceList.Items.Add(item);
-        }
-        if (_project.Sources.Count == 0)
-            _sourceList.Items.Add(new ListViewItem(["尚未添加项目资料", ""]));
-        _projectSummary.Text = $"{_project.Requirements.Count} 项要求，{_project.Sources.Count} 项资料，数据保存在项目 .markleaf 文件夹";
+            type = "state",
+            documentName = Path.GetFileName(_getDocumentPath()),
+            projectName = string.IsNullOrWhiteSpace(root)
+                ? string.Empty
+                : Path.GetFileName(root.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)),
+            model = _settings.Model,
+            requirements,
+            sources,
+            check,
+        });
     }
 
-    private void RefreshCheckView()
+    private void NormalizeHostSplit()
     {
-        _checkList.Items.Clear();
-        if (_lastCiResult is null)
-        {
-            _checkSummary.Text = "打开文档后运行体检";
+        if (IsDisposed
+            || Parent is not SplitterPanel panel
+            || panel.Parent is not SplitContainer split
+            || !ReferenceEquals(panel, split.Panel2))
             return;
-        }
-        _checkSummary.Text = $"要求覆盖 {_lastCiResult.CoveragePercent}%　证据覆盖 {_lastCiResult.EvidencePercent}%　需处理 {_lastCiResult.ErrorCount} 项";
-        foreach (var issue in _lastCiResult.Issues.OrderBy(issue => issue.Severity))
-        {
-            var state = issue.Severity switch
-            {
-                ProofIssueSeverity.Error => "需处理",
-                ProofIssueSeverity.Warning => "检查",
-                ProofIssueSeverity.Passed => "通过",
-                _ => "提示",
-            };
-            var item = new ListViewItem(state);
-            item.SubItems.Add(issue.Title);
-            item.SubItems.Add(issue.Detail);
-            item.ForeColor = issue.Severity switch
-            {
-                ProofIssueSeverity.Error => Danger,
-                ProofIssueSeverity.Warning => Warning,
-                ProofIssueSeverity.Passed => Accent,
-                _ => Muted,
-            };
-            _checkList.Items.Add(item);
-        }
+
+        var scale = Math.Max(1F, DeviceDpi / 96F);
+        var desiredAgentWidth = (int)Math.Round(430 * scale);
+        var editorMinimum = Math.Max(split.Panel1MinSize, (int)Math.Round(420 * scale));
+        var maximumDistance = Math.Max(
+            split.Panel1MinSize,
+            split.ClientSize.Width - split.SplitterWidth - split.Panel2MinSize);
+        split.SplitterDistance = Math.Clamp(
+            split.ClientSize.Width - split.SplitterWidth - desiredAgentWidth,
+            editorMinimum,
+            maximumDistance);
     }
 
-    private void UpdateHeader()
+    private void SetBusy(bool busy, string label, bool cancellable = false)
     {
-        var document = Path.GetFileName(_getDocumentPath());
-        _contextLabel.Text = string.IsNullOrWhiteSpace(document)
-            ? "打开文档后开始工作"
-            : document;
-        _modelLabel.Text = _settings.Model;
-    }
-
-    private void ShowPage(Control page, Button selectedButton)
-    {
-        _contentHost.SuspendLayout();
-        _contentHost.Controls.Clear();
-        _contentHost.Controls.Add(page);
-        page.Dock = DockStyle.Fill;
-        _contentHost.ResumeLayout();
-        foreach (var button in new[] { _agentTab, _projectTab, _checkTab })
-        {
-            var selected = ReferenceEquals(button, selectedButton);
-            button.BackColor = selected ? AccentSoft : Surface;
-            button.ForeColor = selected ? Accent : Muted;
-            button.Font = new Font("Segoe UI", 9F, selected ? FontStyle.Bold : FontStyle.Regular);
-        }
-    }
-
-    private void AppendMessage(string role, string content, Color roleColor)
-    {
-        _conversation.SelectionStart = _conversation.TextLength;
-        _conversation.SelectionLength = 0;
-        _conversation.SelectionFont = new Font("Segoe UI", 9F, FontStyle.Bold);
-        _conversation.SelectionColor = roleColor;
-        _conversation.AppendText(role + "\n");
-        _conversation.SelectionFont = new Font("Segoe UI", 9.5F, FontStyle.Regular);
-        _conversation.SelectionColor = Ink;
-        _conversation.AppendText(content.Trim() + "\n\n");
-        _conversation.SelectionStart = _conversation.TextLength;
-        _conversation.ScrollToCaret();
-    }
-
-    private void SetBusy(bool busy, string status)
-    {
-        _sendButton.Enabled = !busy;
-        _cancelButton.Enabled = busy;
-        _prompt.Enabled = !busy;
-        _agentStatus.Text = status;
         UseWaitCursor = busy;
+        SendToWeb(new { type = "busy", busy, label, cancellable });
     }
 
-    private Button CreatePromptButton(string text, string prompt)
+    private void SendError(string message) => SendToWeb(new { type = "error", message });
+
+    private void SendToWeb(object payload)
     {
-        var button = CreateButton(text, primary: false);
-        button.Height = 28;
-        button.MinimumSize = new Size(72, 28);
-        button.Margin = new Padding(0, 0, 6, 6);
-        button.Font = new Font("Segoe UI", 8.5F);
-        button.Click += (_, _) =>
-        {
-            _prompt.Text = prompt;
-            _prompt.Focus();
-            _prompt.SelectionStart = _prompt.TextLength;
-        };
-        return button;
-    }
-
-    private static void ConfigureTab(Button button, string text, EventHandler handler)
-    {
-        button.Dock = DockStyle.Fill;
-        button.Margin = new Padding(0, 0, 4, 0);
-        button.Text = text;
-        button.FlatStyle = FlatStyle.Flat;
-        button.FlatAppearance.BorderSize = 0;
-        button.Cursor = Cursors.Hand;
-        button.Click += handler;
-    }
-
-    private static void ConfigureButton(Button button, string text, bool primary)
-    {
-        button.Text = text;
-        button.AutoSize = true;
-        button.MinimumSize = new Size(82, 31);
-        button.Height = 31;
-        button.Padding = new Padding(10, 0, 10, 0);
-        button.Margin = new Padding(6, 0, 0, 0);
-        button.FlatStyle = FlatStyle.Flat;
-        button.FlatAppearance.BorderSize = primary ? 0 : 1;
-        button.FlatAppearance.BorderColor = Border;
-        button.BackColor = primary ? Accent : Surface;
-        button.ForeColor = primary ? Color.White : Ink;
-        button.Font = new Font("Segoe UI", 9F, FontStyle.Bold);
-        button.Cursor = Cursors.Hand;
-    }
-
-    private static Button CreateButton(string text, bool primary)
-    {
-        var button = new Button();
-        ConfigureButton(button, text, primary);
-        return button;
-    }
-
-    private static Button CreateTextButton(string text)
-        => new()
-        {
-            AutoSize = true,
-            Text = text,
-            FlatStyle = FlatStyle.Flat,
-            ForeColor = Muted,
-            BackColor = Surface,
-            Cursor = Cursors.Hand,
-            Font = new Font("Segoe UI", 8.5F),
-            Margin = Padding.Empty,
-            Padding = new Padding(5, 0, 5, 0),
-        };
-
-    private static Label SectionLabel(string text)
-        => new()
-        {
-            Dock = DockStyle.Fill,
-            Text = text,
-            TextAlign = ContentAlignment.MiddleLeft,
-            ForeColor = Ink,
-            Font = new Font("Segoe UI", 9F, FontStyle.Bold),
-        };
-
-    private static void ConfigureList(ListView list)
-    {
-        list.Dock = DockStyle.Fill;
-        list.View = View.Details;
-        list.FullRowSelect = true;
-        list.HideSelection = false;
-        list.GridLines = false;
-        list.BorderStyle = BorderStyle.FixedSingle;
-        list.BackColor = Surface;
-        list.ForeColor = Ink;
-        list.Font = new Font("Segoe UI", 8.8F);
-        list.HeaderStyle = ColumnHeaderStyle.Nonclickable;
+        if (!_webReady || IsDisposed || _webView.CoreWebView2 is null) return;
+        _webView.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(payload));
     }
 
     private void ShowAgentSettings()
@@ -856,7 +609,7 @@ internal sealed class AgentPanel : UserControl
             MinimizeBox = false,
             ShowInTaskbar = false,
             AutoScaleMode = AutoScaleMode.Dpi,
-            ClientSize = new Size(520, 276),
+            ClientSize = new Size(540, 300),
             BackColor = Surface,
             Font = new Font("Segoe UI", 9F),
         };
@@ -864,40 +617,43 @@ internal sealed class AgentPanel : UserControl
         var model = new TextBox { Text = _settings.Model, Dock = DockStyle.Fill };
         var apiKey = new TextBox { Text = _sessionApiKey, UseSystemPasswordChar = true, Dock = DockStyle.Fill };
         var confirm = new CheckBox { Text = "发送到非本地地址前再次确认", Checked = _settings.ConfirmBeforeCloud, AutoSize = true };
-        var layout = new TableLayoutPanel
+        var hint = new Label
         {
-            Dock = DockStyle.Fill,
-            Padding = new Padding(18),
-            ColumnCount = 2,
-            RowCount = 5,
+            Text = "支持 OpenAI-compatible API；本地 Ollama 默认地址为 http://localhost:11434/v1。",
+            ForeColor = Muted,
+            AutoSize = true,
+            MaximumSize = new Size(390, 0),
         };
+        var layout = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(20), ColumnCount = 2, RowCount = 6 };
         layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 90));
         layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         for (var index = 0; index < 4; index++) layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 44));
+        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 42));
         layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         AddSettingsRow(layout, 0, "API 地址", endpoint);
         AddSettingsRow(layout, 1, "模型", model);
         AddSettingsRow(layout, 2, "API Key", apiKey);
         layout.Controls.Add(confirm, 1, 3);
+        layout.Controls.Add(hint, 1, 4);
         var buttons = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.RightToLeft };
-        var save = CreateButton("保存", true);
-        var cancel = CreateButton("取消", false);
-        save.DialogResult = DialogResult.OK;
-        cancel.DialogResult = DialogResult.Cancel;
+        var save = CreateDialogButton("保存", true); save.DialogResult = DialogResult.OK;
+        var cancel = CreateDialogButton("取消", false); cancel.DialogResult = DialogResult.Cancel;
         buttons.Controls.Add(save);
         buttons.Controls.Add(cancel);
-        layout.Controls.Add(buttons, 1, 4);
+        layout.Controls.Add(buttons, 1, 5);
         dialog.Controls.Add(layout);
         dialog.AcceptButton = save;
         dialog.CancelButton = cancel;
         if (dialog.ShowDialog(FindForm()) != DialogResult.OK) return;
+
         _settings.Endpoint = endpoint.Text.Trim();
         _settings.Model = model.Text.Trim();
         _settings.ConfirmBeforeCloud = confirm.Checked;
         _sessionApiKey = apiKey.Text;
         _rememberApiKey(_sessionApiKey);
         _saveSettings();
-        UpdateHeader();
+        SendState();
+        SendToWeb(new { type = "toast", message = "Agent 设置已保存" });
     }
 
     private static void AddSettingsRow(TableLayoutPanel layout, int row, string label, Control control)
@@ -913,6 +669,27 @@ internal sealed class AgentPanel : UserControl
         layout.Controls.Add(control, 1, row);
     }
 
+    private static Button CreateDialogButton(string text, bool primary)
+    {
+        var button = new Button
+        {
+            Text = text,
+            AutoSize = true,
+            MinimumSize = new Size(84, 32),
+            Height = 32,
+            Padding = new Padding(10, 0, 10, 0),
+            Margin = new Padding(7, 0, 0, 0),
+            FlatStyle = FlatStyle.Flat,
+            BackColor = primary ? Accent : Surface,
+            ForeColor = primary ? Color.White : Ink,
+            Font = new Font("Segoe UI", 9F, FontStyle.Bold),
+            Cursor = Cursors.Hand,
+        };
+        button.FlatAppearance.BorderSize = primary ? 0 : 1;
+        button.FlatAppearance.BorderColor = Border;
+        return button;
+    }
+
     private bool ShouldConfirmCloud()
     {
         if (!_settings.ConfirmBeforeCloud) return false;
@@ -921,21 +698,11 @@ internal sealed class AgentPanel : UserControl
     }
 
     private void ShowOpenProjectMessage()
-        => MessageBox.Show(
-            FindForm(),
-            "请先打开一个工作区或 Markdown 文档。",
-            "MarkLeaf Agent",
-            MessageBoxButtons.OK,
-            MessageBoxIcon.Information);
+        => MessageBox.Show(FindForm(), "请先打开一个工作区或 Markdown 文档。", "MarkLeaf Agent", MessageBoxButtons.OK, MessageBoxIcon.Information);
 
     private void AddAudit(string action, string detail, bool humanConfirmed)
     {
-        _project.AuditTrail.Add(new ProofAuditEvent
-        {
-            Action = action,
-            Detail = detail,
-            HumanConfirmed = humanConfirmed,
-        });
+        _project.AuditTrail.Add(new ProofAuditEvent { Action = action, Detail = detail, HumanConfirmed = humanConfirmed });
         if (_project.AuditTrail.Count > 500)
             _project.AuditTrail.RemoveRange(0, _project.AuditTrail.Count - 500);
     }

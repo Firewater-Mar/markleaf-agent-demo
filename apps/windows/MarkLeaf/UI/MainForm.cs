@@ -535,6 +535,11 @@ internal sealed partial class MainForm : Form
         startupTasks.Add(InitializeStartupContentAsync());
         await Task.WhenAll(startupTasks);
         await _agentPanel.RefreshContextAsync();
+        SetSplitterDistanceSafely(
+            _agentSplit,
+            this.ScaleForDpi(430),
+            FixedPanel.Panel2);
+        WriteWindowReport();
         _logger.Info($"Startup: editor and initial content ready after {startupTimer.ElapsedMilliseconds} ms.");
 
         if (_settings.General.AutoCheckForUpdates)

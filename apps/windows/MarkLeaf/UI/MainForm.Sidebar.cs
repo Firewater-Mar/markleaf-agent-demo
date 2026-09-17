@@ -46,15 +46,21 @@ internal sealed partial class MainForm
             Orientation = Orientation.Vertical,
             FixedPanel = FixedPanel.Panel2,
             SplitterWidth = 1,
-            Panel1MinSize = this.ScaleForDpi(520),
-            Panel2MinSize = this.ScaleForDpi(350),
+            Panel1MinSize = this.ScaleForDpi(420),
+            Panel2MinSize = this.ScaleForDpi(320),
         };
         split.Panel1.Controls.Add(editorAndOutline);
         split.Panel2.Controls.Add(_agentPanel);
-        split.HandleCreated += (_, _) => SetSplitterDistanceSafely(
-            split,
-            this.ScaleForDpi(390),
-            FixedPanel.Panel2);
+        split.HandleCreated += (_, _) => split.BeginInvoke(new Action(() =>
+            SetSplitterDistanceSafely(
+                split,
+                this.ScaleForDpi(430),
+                FixedPanel.Panel2)));
+        Shown += (_, _) => BeginInvoke(new Action(() =>
+            SetSplitterDistanceSafely(
+                split,
+                this.ScaleForDpi(430),
+                FixedPanel.Panel2)));
         return _agentSplit = split;
     }
 
