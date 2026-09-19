@@ -1,9 +1,12 @@
+using System.Collections.Concurrent;
 using System.Text.Json;
 
 namespace MarkLeaf.Services.Proof;
 
 internal sealed class ProofProjectStore
 {
+    private static readonly ConcurrentDictionary<string, SemaphoreSlim> SaveGates =
+        new(StringComparer.OrdinalIgnoreCase);
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         WriteIndented = true,
@@ -70,7 +73,16 @@ internal sealed class ProofProjectStore
                 await stream.FlushAsync(cancellationToken);
                 stream.Flush(flushToDisk: true);
             }
-            await MoveIntoPlaceAsync(temporaryPath, path, cancellationToken);
+            var gate = SaveGates.GetOrAdd(Path.GetFullPath(path), _ => new SemaphoreSlim(1, 1));
+            await gate.WaitAsync(cancellationToken);
+            try
+            {
+                await MoveIntoPlaceAsync(temporaryPath, path, cancellationToken);
+            }
+            finally
+            {
+                gate.Release();
+            }
         }
         finally
         {
@@ -87,7 +99,9 @@ internal sealed class ProofProjectStore
                 File.Move(temporaryPath, path, overwrite: true);
                 return;
             }
-            catch (IOException) when (attempt < 2)
+            catch (Exception exception) when (
+                exception is IOException or UnauthorizedAccessException
+                && attempt < 5)
             {
                 await Task.Delay(40 * (attempt + 1), cancellationToken);
             }

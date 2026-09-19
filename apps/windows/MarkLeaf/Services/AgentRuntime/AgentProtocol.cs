@@ -8,6 +8,7 @@ internal enum AgentRunStatus { Queued, Running, WaitingForApproval, Completed, C
 internal enum AgentMessagePartType { Text, Plan, Progress, Tool, Code, Artifact, Error }
 internal enum AgentToolRisk { ReadOnly, WorkspaceWrite, ExternalNetwork, CodeExecution, Destructive }
 internal enum AgentPermissionDecision { Allow, RequireApproval, Deny }
+internal enum AgentPendingActionKind { ReplaceSection, CreateFile }
 
 internal sealed record AgentMessagePart
 {
@@ -64,7 +65,29 @@ internal sealed class AgentSessionState
     public DateTime CreatedAtUtc { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAtUtc { get; set; } = DateTime.UtcNow;
     public List<AgentConversationTurn> RecentTurns { get; set; } = [];
+    public AgentPendingAction? PendingAction { get; set; }
 }
+
+internal sealed record AgentPendingAction
+{
+    public string Id { get; init; } = Guid.NewGuid().ToString("N");
+    public AgentPendingActionKind Kind { get; init; }
+    public string Label { get; init; } = string.Empty;
+    public string TargetDocumentPath { get; init; } = string.Empty;
+    public string? TargetHeading { get; init; }
+    public string PreviewMarkdown { get; init; } = string.Empty;
+    public string? OriginalDocumentHash { get; init; }
+    public string? RunId { get; init; }
+    public List<AgentPendingSource> Sources { get; init; } = [];
+    public DateTime CreatedAtUtc { get; init; } = DateTime.UtcNow;
+}
+
+internal sealed record AgentPendingSource(
+    string Id,
+    string DisplayPath,
+    int StartLine,
+    int EndLine,
+    string? Locator);
 
 internal sealed record AgentConversationTurn
 {

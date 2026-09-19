@@ -138,6 +138,21 @@ internal sealed class AgentRuntime
     public Task<IReadOnlyList<AgentRunState>> ListRunsAsync(int limit = 20, CancellationToken cancellationToken = default) =>
         _archive.ListRunsAsync(limit, cancellationToken);
 
+    public async Task SavePendingActionAsync(AgentPendingAction pendingAction, CancellationToken cancellationToken = default)
+    {
+        Session.PendingAction = pendingAction;
+        Session.UpdatedAtUtc = DateTime.UtcNow;
+        await _archive.SaveSessionAsync(Session, cancellationToken);
+    }
+
+    public async Task ClearPendingActionAsync(CancellationToken cancellationToken = default)
+    {
+        if (Session.PendingAction is null) return;
+        Session.PendingAction = null;
+        Session.UpdatedAtUtc = DateTime.UtcNow;
+        await _archive.SaveSessionAsync(Session, cancellationToken);
+    }
+
     private async Task FinishRunAsync(
         AgentRunState run,
         AgentRunStatus status,

@@ -96,4 +96,27 @@ public sealed class AgentRuntimeTests
 
         Assert.ThrowsExactly<InvalidOperationException>(() => registry.Register(new ReadWorkspaceTextTool()));
     }
+
+    [TestMethod]
+    public async Task PendingActionSurvivesReopenAndCanBeCleared()
+    {
+        var runtime = await AgentRuntime.OpenAsync(_workspace);
+        await runtime.SavePendingActionAsync(new AgentPendingAction
+        {
+            Kind = AgentPendingActionKind.ReplaceSection,
+            Label = "Replace application value",
+            TargetDocumentPath = "report.md",
+            TargetHeading = "Application value",
+            PreviewMarkdown = "## Application value\n\nRewritten content.",
+            OriginalDocumentHash = "hash",
+        });
+
+        var reopened = await AgentRuntime.OpenAsync(_workspace);
+        Assert.IsNotNull(reopened.Session.PendingAction);
+        Assert.AreEqual("report.md", reopened.Session.PendingAction.TargetDocumentPath);
+
+        await reopened.ClearPendingActionAsync();
+        var cleared = await AgentRuntime.OpenAsync(_workspace);
+        Assert.IsNull(cleared.Session.PendingAction);
+    }
 }

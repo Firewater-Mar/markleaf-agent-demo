@@ -243,6 +243,8 @@ internal sealed class AgentPanel : UserControl
                     _cancellation?.Cancel();
                     break;
                 case "apply":
+                    await EnsureProjectAsync();
+                    RestorePendingAction();
                     await ApplyLastAnswerAsync();
                     break;
                 case "select_target_document":
@@ -322,6 +324,8 @@ internal sealed class AgentPanel : UserControl
 
         try
         {
+            await EnsureProjectAsync();
+            RestorePendingAction();
             if ((_pendingSectionEdit is not null || _pendingFileDraft is not null)
                 && AgentDocumentEditService.IsApplyConfirmation(request))
             {
@@ -333,11 +337,12 @@ internal sealed class AgentPanel : UserControl
             {
                 _pendingSectionEdit = null;
                 _pendingFileDraft = null;
+                if (_agentRuntime is not null)
+                    await _agentRuntime.ClearPendingActionAsync();
                 SendToWeb(new { type = "toast", message = "已取消上一条修改预览，正文没有变化" });
                 return;
             }
 
-            await EnsureProjectAsync();
             var targetPath = ResolveTargetDocumentPath(requestedTargetPath);
             if (!string.IsNullOrWhiteSpace(targetPath)
                 && !PathEquals(targetPath, _getDocumentPath() ?? string.Empty))
@@ -425,8 +430,13 @@ internal sealed class AgentPanel : UserControl
             });
 
             var behavior = AgentDocumentEditService.Classify(request, mode);
-            _pendingSectionEdit = null;
-            _pendingFileDraft = null;
+            if (behavior is AgentTaskBehavior.EditPreview or AgentTaskBehavior.CreateFilePreview)
+            {
+                _pendingSectionEdit = null;
+                _pendingFileDraft = null;
+                if (_agentRuntime is not null)
+                    await _agentRuntime.ClearPendingActionAsync(_cancellation.Token);
+            }
             var scopeInstruction = currentOnly
                 ? $"操作主文件是“{targetName}”。本任务只允许依据该文件回答；“当前文档/这个文件”只指它"
                 : $"操作主文件是“{targetName}”。其他资料只用于核验或补充，不能取代主文件的任务对象";
@@ -502,6 +512,8 @@ internal sealed class AgentPanel : UserControl
                     OriginalDocumentHash = ComputeDocumentHash(markdown),
                 };
             }
+            if (canApply)
+                await PersistPendingActionAsync(_cancellation.Token);
 
             var displayedSources = SelectReferencedSources(_lastAnswer, _lastSources, currentOnly);
 
@@ -570,6 +582,8 @@ internal sealed class AgentPanel : UserControl
             {
                 SendToWeb(new { type = "toast", message = $"“{draft.DisplayPath}”已存在，未覆盖；请换一个文件名" });
                 _pendingFileDraft = null;
+                if (_agentRuntime is not null)
+                    await _agentRuntime.ClearPendingActionAsync();
                 return;
             }
             Directory.CreateDirectory(Path.GetDirectoryName(draft.TargetPath)!);
@@ -581,6 +595,8 @@ internal sealed class AgentPanel : UserControl
             SendToWeb(new { type = "applied" });
             SendToWeb(new { type = "toast", message = $"已创建“{draft.DisplayPath}”" });
             _pendingFileDraft = null;
+            if (_agentRuntime is not null)
+                await _agentRuntime.ClearPendingActionAsync();
             return;
         }
         if (_pendingSectionEdit is null) return;
@@ -595,6 +611,8 @@ internal sealed class AgentPanel : UserControl
         {
             SendToWeb(new { type = "toast", message = "预览后正文已经变化，请重新生成修改预览，避免覆盖新内容" });
             _pendingSectionEdit = null;
+            if (_agentRuntime is not null)
+                await _agentRuntime.ClearPendingActionAsync();
             return;
         }
         var portableMarkdown = PortableCitationService.ConvertAgentSourcesToFootnotes(
@@ -606,6 +624,8 @@ internal sealed class AgentPanel : UserControl
         SendToWeb(new { type = "applied" });
         SendToWeb(new { type = "toast", message = $"已替换“{_pendingSectionEdit.TargetHeading}”章节，可在编辑器中撤销" });
         _pendingSectionEdit = null;
+        if (_agentRuntime is not null)
+            await _agentRuntime.ClearPendingActionAsync();
         _lastCiResult = null;
     }
 
@@ -615,6 +635,8 @@ internal sealed class AgentPanel : UserControl
         _targetDocumentPath = path;
         _pendingSectionEdit = null;
         _pendingFileDraft = null;
+        if (_agentRuntime is not null)
+            await _agentRuntime.ClearPendingActionAsync();
         _lastCiResult = null;
         await _openDocument(path);
         SendState();
@@ -912,6 +934,80 @@ internal sealed class AgentPanel : UserControl
             : relativePath.Replace('\\', '/');
     }
 
+    private async Task PersistPendingActionAsync(CancellationToken cancellationToken)
+    {
+        if (_agentRuntime is null) return;
+        var sources = _lastSources.Select(source => new AgentPendingSource(
+            source.Id,
+            source.DisplayPath,
+            source.StartLine,
+            source.EndLine,
+            source.Locator)).ToList();
+        AgentPendingAction? action = null;
+        if (_pendingSectionEdit is not null)
+        {
+            action = new AgentPendingAction
+            {
+                Kind = AgentPendingActionKind.ReplaceSection,
+                Label = $"替换“{_pendingSectionEdit.TargetHeading}”章节",
+                TargetDocumentPath = ToWorkspaceRelativePath(_pendingSectionEdit.TargetDocumentPath) ?? string.Empty,
+                TargetHeading = _pendingSectionEdit.TargetHeading,
+                PreviewMarkdown = _pendingSectionEdit.ReplacementMarkdown,
+                OriginalDocumentHash = _pendingSectionEdit.OriginalDocumentHash,
+                RunId = _activeRun?.Id,
+                Sources = sources,
+            };
+        }
+        else if (_pendingFileDraft is not null)
+        {
+            action = new AgentPendingAction
+            {
+                Kind = AgentPendingActionKind.CreateFile,
+                Label = $"创建“{_pendingFileDraft.DisplayPath}”",
+                TargetDocumentPath = _pendingFileDraft.DisplayPath,
+                PreviewMarkdown = _pendingFileDraft.Markdown,
+                RunId = _activeRun?.Id,
+                Sources = sources,
+            };
+        }
+        if (action is not null) await _agentRuntime.SavePendingActionAsync(action, cancellationToken);
+    }
+
+    private void RestorePendingAction()
+    {
+        if (_pendingSectionEdit is not null || _pendingFileDraft is not null || _agentRuntime?.Session.PendingAction is not { } action)
+            return;
+        var root = ResolveProjectRoot();
+        if (string.IsNullOrWhiteSpace(root) || string.IsNullOrWhiteSpace(action.TargetDocumentPath)) return;
+        var rootPrefix = Path.GetFullPath(root).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+            + Path.DirectorySeparatorChar;
+        var targetPath = Path.GetFullPath(Path.Combine(rootPrefix, action.TargetDocumentPath));
+        if (!targetPath.StartsWith(rootPrefix, StringComparison.OrdinalIgnoreCase)) return;
+
+        _lastSources = action.Sources.Select(source => new AiSource(
+            source.Id,
+            source.DisplayPath,
+            source.StartLine,
+            source.EndLine,
+            string.Empty,
+            0,
+            source.Locator)).ToArray();
+        if (action.Kind == AgentPendingActionKind.ReplaceSection
+            && !string.IsNullOrWhiteSpace(action.TargetHeading)
+            && File.Exists(targetPath))
+        {
+            _pendingSectionEdit = new AgentSectionEdit(
+                action.TargetHeading,
+                action.PreviewMarkdown,
+                targetPath,
+                action.OriginalDocumentHash);
+        }
+        else if (action.Kind == AgentPendingActionKind.CreateFile)
+        {
+            _pendingFileDraft = new AgentFileDraft(targetPath, action.TargetDocumentPath.Replace('\\', '/'), action.PreviewMarkdown);
+        }
+    }
+
     private void SendState()
     {
         var root = ResolveProjectRoot();
@@ -977,6 +1073,7 @@ internal sealed class AgentPanel : UserControl
                     },
                 }).ToArray(),
             };
+        var pending = _agentRuntime?.Session.PendingAction;
 
         SendToWeb(new
         {
@@ -1002,6 +1099,14 @@ internal sealed class AgentPanel : UserControl
             sources,
             audits,
             check,
+            pendingAction = pending is null ? null : new
+            {
+                id = pending.Id,
+                label = pending.Label,
+                kind = pending.Kind.ToString(),
+                target = pending.TargetDocumentPath,
+                preview = pending.PreviewMarkdown,
+            },
         });
     }
 

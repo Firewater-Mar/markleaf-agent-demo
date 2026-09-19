@@ -651,7 +651,7 @@ internal static class AgentPanelPage
 
 <script>
 (function () {
-  var state = { mode: 'auto', busy: false, lastAssistant: null, lastPrompt: '', targetPath: '', model: '', providerName: '', providerType: 'ollama', endpoint: '', apiKeyConfigured: false, confirmBeforeCloud: true, availableModels: [], documents: [], settingsProviderType: 'ollama' };
+  var state = { mode: 'auto', busy: false, lastAssistant: null, lastPrompt: '', targetPath: '', model: '', providerName: '', providerType: 'ollama', endpoint: '', apiKeyConfigured: false, confirmBeforeCloud: true, availableModels: [], documents: [], settingsProviderType: 'ollama', pendingActionId: '' };
   var el = function (id) { return document.getElementById(id); };
   var post = function (message) { if (window.chrome && window.chrome.webview) window.chrome.webview.postMessage(message); };
   var now = function () { return new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }); };
@@ -983,6 +983,13 @@ internal static class AgentPanelPage
       el('checkDescription').textContent = '集中查看要求覆盖、证据缺口和等待确认的章节修改。';
       el('coverageValue').textContent = '—'; el('evidenceValue').textContent = '—'; el('issueValue').textContent = '—';
       listRows(el('issuesList'), [], '打开文档后运行检查。', function () { return {}; });
+    }
+    if (data.pendingAction && data.pendingAction.id !== state.pendingActionId) {
+      state.pendingActionId = data.pendingAction.id;
+      var pendingText = '有一项等待你确认的操作：**' + data.pendingAction.label + '**。\n\n目标：`' + data.pendingAction.target + '`\n\n```markdown\n' + data.pendingAction.preview + '\n```';
+      message('agent', pendingText, { canApply: true, applyLabel: data.pendingAction.label });
+    } else if (!data.pendingAction) {
+      state.pendingActionId = '';
     }
   }
 
