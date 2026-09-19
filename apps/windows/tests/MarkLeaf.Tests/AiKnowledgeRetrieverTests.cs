@@ -101,4 +101,54 @@ public sealed class AiKnowledgeRetrieverTests
         CollectionAssert.AreEqual(new[] { "gpt-test" }, OpenAiCompatibleClient.ReadModelIds(openAi.RootElement).ToArray());
         CollectionAssert.AreEqual(new[] { "qwen3:4b", "llama3.2" }, OpenAiCompatibleClient.ReadModelIds(ollama.RootElement).ToArray());
     }
+
+    [TestMethod]
+    public void ParseToolCompletionResponse_ReadsOpenAiFunctionCalls()
+    {
+        var result = OpenAiCompatibleClient.ParseToolCompletionResponse("""
+            {
+              "choices": [{
+                "message": {
+                  "content": null,
+                  "tool_calls": [{
+                    "id": "call_123",
+                    "type": "function",
+                    "function": {
+                      "name": "read_workspace_text",
+                      "arguments": "{\"path\":\"notes.md\"}"
+                    }
+                  }]
+                }
+              }]
+            }
+            """);
+
+        Assert.AreEqual(string.Empty, result.Content);
+        Assert.HasCount(1, result.ToolCalls);
+        Assert.AreEqual("call_123", result.ToolCalls[0].Id);
+        Assert.AreEqual("read_workspace_text", result.ToolCalls[0].Name);
+        Assert.AreEqual("notes.md", result.ToolCalls[0].Arguments["path"]?.GetValue<string>());
+    }
+
+    [TestMethod]
+    public void ParseToolCompletionResponse_ReadsOllamaObjectArguments()
+    {
+        var result = OpenAiCompatibleClient.ParseToolCompletionResponse("""
+            {
+              "message": {
+                "content": "I will inspect the file.",
+                "tool_calls": [{
+                  "function": {
+                    "name": "read_workspace_text",
+                    "arguments": { "path": "report.md" }
+                  }
+                }]
+              }
+            }
+            """);
+
+        Assert.AreEqual("I will inspect the file.", result.Content);
+        Assert.HasCount(1, result.ToolCalls);
+        Assert.AreEqual("report.md", result.ToolCalls[0].Arguments["path"]?.GetValue<string>());
+    }
 }

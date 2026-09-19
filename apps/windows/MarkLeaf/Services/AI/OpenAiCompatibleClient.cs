@@ -1,6 +1,8 @@
+using MarkLeaf.Services.AgentRuntime;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 
 namespace MarkLeaf.Services.AI;
 
@@ -79,6 +81,62 @@ internal sealed class OpenAiCompatibleClient
             userPrompt,
             0,
             cancellationToken);
+    }
+
+    public async Task<AgentToolCompletion> CompleteWithToolsAsync(
+        string endpoint,
+        string model,
+        string apiKey,
+        string systemPrompt,
+        string userPrompt,
+        IReadOnlyList<AgentToolDescriptor> tools,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(systemPrompt)) throw new ArgumentException("请提供系统任务说明。", nameof(systemPrompt));
+        if (string.IsNullOrWhiteSpace(userPrompt)) throw new ArgumentException("请提供任务内容。", nameof(userPrompt));
+        if (tools.Count == 0) throw new ArgumentException("至少需要提供一个工具。", nameof(tools));
+        if (string.IsNullOrWhiteSpace(endpoint)) throw new ArgumentException("请填写 API 地址。", nameof(endpoint));
+        if (string.IsNullOrWhiteSpace(model)) throw new ArgumentException("请填写模型名称。", nameof(model));
+
+        var payload = JsonSerializer.Serialize(new
+        {
+            model = model.Trim(),
+            messages = new[]
+            {
+                new { role = "system", content = systemPrompt },
+                new { role = "user", content = userPrompt },
+            },
+            tools = tools.Select(tool => new
+            {
+                type = "function",
+                function = new
+                {
+                    name = tool.Name,
+                    description = tool.Description,
+                    parameters = tool.ParameterSchema,
+                },
+            }),
+            tool_choice = "auto",
+            temperature = 0,
+            stream = false,
+        }, AgentJson.JsonLineOptions);
+
+        using var request = new HttpRequestMessage(HttpMethod.Post, BuildChatCompletionsUrl(endpoint))
+        {
+            Content = new StringContent(payload, Encoding.UTF8, "application/json"),
+        };
+        if (!string.IsNullOrWhiteSpace(apiKey))
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey.Trim());
+
+        using var response = await Client.SendAsync(
+            request,
+            HttpCompletionOption.ResponseHeadersRead,
+            cancellationToken).ConfigureAwait(false);
+        var responseText = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+        if (!response.IsSuccessStatusCode)
+            throw new HttpRequestException(BuildServiceError(response.StatusCode, responseText));
+
+        return ParseToolCompletionResponse(responseText);
     }
 
     private static async Task<string> SendCompletionAsync(
@@ -199,6 +257,77 @@ internal sealed class OpenAiCompatibleClient
         return results;
     }
 
+    internal static AgentToolCompletion ParseToolCompletionResponse(string responseText)
+    {
+        using var document = JsonDocument.Parse(responseText);
+        var root = document.RootElement;
+        JsonElement message;
+        if (root.TryGetProperty("choices", out var choices)
+            && choices.ValueKind == JsonValueKind.Array
+            && choices.GetArrayLength() > 0
+            && choices[0].TryGetProperty("message", out var openAiMessage))
+        {
+            message = openAiMessage;
+        }
+        else if (root.TryGetProperty("message", out var ollamaMessage))
+        {
+            message = ollamaMessage;
+        }
+        else
+        {
+            throw new InvalidDataException("AI 服务返回了无法识别的工具调用格式。");
+        }
+
+        var content = message.TryGetProperty("content", out var contentValue)
+            && contentValue.ValueKind == JsonValueKind.String
+                ? contentValue.GetString() ?? string.Empty
+                : string.Empty;
+        var calls = new List<AgentToolCall>();
+        if (message.TryGetProperty("tool_calls", out var toolCalls)
+            && toolCalls.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var item in toolCalls.EnumerateArray())
+            {
+                if (!item.TryGetProperty("function", out var function)
+                    || !function.TryGetProperty("name", out var nameValue)
+                    || nameValue.ValueKind != JsonValueKind.String)
+                    continue;
+
+                var arguments = ReadToolArguments(function);
+                calls.Add(new AgentToolCall
+                {
+                    Id = item.TryGetProperty("id", out var idValue) && idValue.ValueKind == JsonValueKind.String
+                        ? idValue.GetString() ?? Guid.NewGuid().ToString("N")
+                        : Guid.NewGuid().ToString("N"),
+                    Name = nameValue.GetString() ?? string.Empty,
+                    Arguments = arguments,
+                });
+            }
+        }
+
+        if (string.IsNullOrWhiteSpace(content) && calls.Count == 0)
+            throw new InvalidDataException("AI 服务既没有返回文本，也没有返回工具调用。");
+        return new AgentToolCompletion(content.Trim(), calls);
+    }
+
+    private static JsonObject ReadToolArguments(JsonElement function)
+    {
+        if (!function.TryGetProperty("arguments", out var arguments)) return [];
+        try
+        {
+            return arguments.ValueKind switch
+            {
+                JsonValueKind.String => JsonNode.Parse(arguments.GetString() ?? "{}") as JsonObject ?? [],
+                JsonValueKind.Object => JsonNode.Parse(arguments.GetRawText()) as JsonObject ?? [],
+                _ => [],
+            };
+        }
+        catch (JsonException exception)
+        {
+            throw new InvalidDataException("AI 服务返回了无效的工具参数。", exception);
+        }
+    }
+
     private static void AddModel(List<string> results, string? value)
     {
         if (!string.IsNullOrWhiteSpace(value)
@@ -239,3 +368,5 @@ internal sealed class OpenAiCompatibleClient
         return !string.IsNullOrWhiteSpace(content);
     }
 }
+
+internal sealed record AgentToolCompletion(string Content, IReadOnlyList<AgentToolCall> ToolCalls);

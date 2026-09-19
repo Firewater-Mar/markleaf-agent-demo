@@ -42,4 +42,17 @@ API 地址：http://localhost:11434/v1
 
 ## 项目文件
 
-Agent 数据保存在 `.markleaf/proof-project.json`。导出的配套材料位于 `.markleaf/exports/`，正文始终是标准 Markdown，可以继续编辑、加入 Git 或导出为 PDF 和 HTML。
+证据项目数据保存在 `.markleaf/proof-project.json`。导出的配套材料位于 `.markleaf/exports/`，正文始终是标准 Markdown，可以继续编辑、加入 Git 或导出为 PDF 和 HTML。
+
+## Agent 运行内核
+
+每次正式请求都有独立的运行编号和生命周期。运行记录位于 `.markleaf/agent/`：
+
+- `session.json`：当前工作区最近的对话上下文；
+- `runs/<运行编号>/meta.json`：目标、目标文档、状态和产物；
+- `message-parts.jsonl`：正文、计划、进度、工具和错误等结构化消息；
+- `tool-calls.jsonl`：工具参数与执行结果。
+
+工具按风险分级：读取工作区文本可直接执行；写入工作区、联网和代码执行必须先经用户批准；破坏性工具默认禁用。工具不能读取工作区外的路径，也不能通过链接绕过目录限制。目前正文写入继续使用“生成预览—人工确认—可撤销”的既有流程。
+
+这些运行记录可能包含用户提示词和模型回答，默认由 `.gitignore` 排除，不应作为项目源码上传。删除 `.markleaf/agent/` 可以清除本地 Agent 会话和运行历史，不会删除正文。

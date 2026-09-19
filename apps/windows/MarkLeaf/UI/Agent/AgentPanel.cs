@@ -1,4 +1,5 @@
 using MarkLeaf.Services.AI;
+using MarkLeaf.Services.AgentRuntime;
 using MarkLeaf.Services.Proof;
 using MarkLeaf.Services.Settings;
 using Microsoft.Web.WebView2.Core;
@@ -38,6 +39,8 @@ internal sealed class AgentPanel : UserControl
     private readonly Label _loadingLabel = new();
 
     private ProofProject _project = new();
+    private AgentRuntime? _agentRuntime;
+    private AgentRunState? _activeRun;
     private ProofCiResult? _lastCiResult;
     private string? _loadedRoot;
     private string _sessionApiKey;
@@ -151,6 +154,8 @@ internal sealed class AgentPanel : UserControl
     public void ResetWorkspaceContext(string? workspaceRoot)
     {
         _loadedRoot = null;
+        _agentRuntime = null;
+        _activeRun = null;
         _targetDocumentPath = null;
         _lastCiResult = null;
         _pendingSectionEdit = null;
@@ -386,6 +391,20 @@ internal sealed class AgentPanel : UserControl
                 return;
             }
 
+            if (_agentRuntime is not null)
+            {
+                _activeRun = await _agentRuntime.StartRunAsync(
+                    request.Trim(),
+                    ToWorkspaceRelativePath(_targetDocumentPath),
+                    _cancellation.Token);
+                await _agentRuntime.AddPartAsync(_activeRun, new AgentMessagePart
+                {
+                    Type = AgentMessagePartType.Progress,
+                    Title = "准备上下文",
+                    Content = $"正在读取操作主文件“{targetName}”并检索相关资料。",
+                }, _cancellation.Token);
+            }
+
             var currentOnly = ProofSourceQueryService.ShouldUseOnlyCurrentDocument(request);
             _lastSources = ProofSourceQueryService.BuildSources(
                 _project,
@@ -486,6 +505,16 @@ internal sealed class AgentPanel : UserControl
 
             var displayedSources = SelectReferencedSources(_lastAnswer, _lastSources, currentOnly);
 
+            if (_agentRuntime is not null && _activeRun is not null)
+            {
+                await _agentRuntime.AddPartAsync(_activeRun, new AgentMessagePart
+                {
+                    Type = AgentMessagePartType.Text,
+                    Content = _lastAnswer,
+                }, _cancellation.Token);
+                await _agentRuntime.CompleteRunAsync(_activeRun, _lastAnswer, _cancellation.Token);
+            }
+
             SendToWeb(new
             {
                 type = "assistant",
@@ -507,18 +536,25 @@ internal sealed class AgentPanel : UserControl
         }
         catch (OperationCanceledException) when (_cancellation?.IsCancellationRequested == true)
         {
+            if (_agentRuntime is not null && _activeRun is not null)
+                await _agentRuntime.CancelRunAsync(_activeRun, CancellationToken.None);
             SendToWeb(new { type = "cancelled", message = "任务已停止，没有修改文档。你可以调整要求后重新发送。" });
         }
         catch (OperationCanceledException exception)
         {
+            if (_agentRuntime is not null && _activeRun is not null)
+                await _agentRuntime.FailRunAsync(_activeRun, exception, CancellationToken.None);
             SendAgentFailure(exception);
         }
         catch (Exception exception)
         {
+            if (_agentRuntime is not null && _activeRun is not null)
+                await _agentRuntime.FailRunAsync(_activeRun, exception, CancellationToken.None);
             SendAgentFailure(exception);
         }
         finally
         {
+            _activeRun = null;
             _cancellation?.Dispose();
             _cancellation = null;
             SetBusy(false, string.Empty);
@@ -827,7 +863,11 @@ internal sealed class AgentPanel : UserControl
             var currentRoot = ResolveProjectRoot();
             if (!string.Equals(currentRoot, root, StringComparison.OrdinalIgnoreCase)) return;
             if (synchronized) await _store.SaveAsync(root, loadedProject);
+            var agentRuntime = await AgentRuntime.OpenAsync(root);
+            currentRoot = ResolveProjectRoot();
+            if (!string.Equals(currentRoot, root, StringComparison.OrdinalIgnoreCase)) return;
             _project = loadedProject;
+            _agentRuntime = agentRuntime;
             _loadedRoot = root;
             _lastCiResult = null;
         }
@@ -860,6 +900,16 @@ internal sealed class AgentPanel : UserControl
         var path = _getDocumentPath();
         var directory = string.IsNullOrWhiteSpace(path) ? null : Path.GetDirectoryName(path);
         return !string.IsNullOrWhiteSpace(directory) && Directory.Exists(directory) ? directory : null;
+    }
+
+    private string? ToWorkspaceRelativePath(string? path)
+    {
+        var root = ResolveProjectRoot();
+        if (string.IsNullOrWhiteSpace(root) || string.IsNullOrWhiteSpace(path)) return null;
+        var relativePath = Path.GetRelativePath(root, path);
+        return relativePath.StartsWith("..", StringComparison.Ordinal) || Path.IsPathRooted(relativePath)
+            ? Path.GetFileName(path)
+            : relativePath.Replace('\\', '/');
     }
 
     private void SendState()
