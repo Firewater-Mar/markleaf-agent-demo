@@ -38,6 +38,7 @@ internal sealed partial class MainForm
         _workspaceLoadCancellation?.Dispose();
         _workspaceLoadCancellation = new CancellationTokenSource();
         _workspaceRoot = fullPath;
+        _agentPanel.ResetWorkspaceContext(fullPath);
         _documentTabBar.SetWorkspaceRoot(fullPath);
         _workspaceService.ResetPreviewCache();
         AddRecentWorkspace(fullPath);
@@ -64,6 +65,7 @@ internal sealed partial class MainForm
             ShowSidebarView(outline: false);
         }
         SetStatus(Loc.Format("status.workspaceOpened", Path.GetFileName(fullPath)));
+        UpdateWorkspaceChromeContext();
         await _agentPanel.RefreshContextAsync();
         _menuService.RefreshStates();
     }
@@ -76,6 +78,7 @@ internal sealed partial class MainForm
         StopWatchingWorkspace();
         _workspaceService.ResetPreviewCache();
         _workspaceRoot = null;
+        _agentPanel.ResetWorkspaceContext(null);
         _documentTabBar.SetWorkspaceRoot(null);
         _settings.Workspace.LastFolder = null;
         _sidebarSearchBar.WorkspaceName = string.Empty;
@@ -84,6 +87,7 @@ internal sealed partial class MainForm
         ClearWorkspacePlaceholder();
         ShowNoWorkspacePlaceholder();
         SetStatus(Loc.Get("status.workspaceClosed"));
+        UpdateWorkspaceChromeContext();
         _ = _agentPanel.RefreshContextAsync();
         _menuService.RefreshStates();
     }

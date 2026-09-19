@@ -20,6 +20,12 @@ internal sealed class ProofRequirement
     public bool Required { get; set; } = true;
     public bool IsCovered { get; set; }
     public string MatchedHeading { get; set; } = string.Empty;
+    public string CoverageState { get; set; } = "unchecked";
+    public int? EvidenceStartLine { get; set; }
+    public int? EvidenceEndLine { get; set; }
+    public string EvidenceText { get; set; } = string.Empty;
+    public string CoverageReason { get; set; } = string.Empty;
+    public double? CoverageConfidence { get; set; }
 }
 
 internal sealed class ProofSource
@@ -52,6 +58,7 @@ internal sealed class ProofRunSummary
     public int ErrorCount { get; set; }
     public int WarningCount { get; set; }
     public int InfoCount { get; set; }
+    public bool SemanticVerified { get; set; }
 }
 
 internal enum ProofIssueSeverity
@@ -83,6 +90,16 @@ internal sealed record ProofClaimAssessment(
     ProofEvidenceState State,
     IReadOnlyList<string> CitationIds);
 
+internal sealed record RequirementCoverageAssessment(
+    string RequirementId,
+    string State,
+    string Heading,
+    int? StartLine,
+    int? EndLine,
+    string Evidence,
+    string Reason,
+    double Confidence);
+
 internal sealed record ProofCiResult(
     IReadOnlyList<ProofIssue> Issues,
     IReadOnlyList<ProofClaimAssessment> Claims,
@@ -90,7 +107,8 @@ internal sealed record ProofCiResult(
     int CoveredRequirementCount,
     int EvidenceCount,
     int ClaimCount,
-    int SupportedClaimCount)
+    int SupportedClaimCount,
+    bool SemanticVerified = false)
 {
     public int ErrorCount => Issues.Count(issue => issue.Severity == ProofIssueSeverity.Error);
     public int WarningCount => Issues.Count(issue => issue.Severity == ProofIssueSeverity.Warning);

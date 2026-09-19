@@ -4,7 +4,10 @@ using MarkLeaf.Services.Settings;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.WinForms;
 using System.Diagnostics;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 
 namespace MarkLeaf.UI.Agent;
 
@@ -20,12 +23,16 @@ internal sealed class AgentPanel : UserControl
     private readonly Func<string?> _getWorkspaceRoot;
     private readonly Func<string?> _getDocumentPath;
     private readonly Func<Task<string>> _getCurrentMarkdown;
-    private readonly Action<string> _insertMarkdown;
+    private readonly Action<string, string> _replaceSection;
+    private readonly Func<string, Task> _openDocument;
+    private readonly Func<string, int, Task> _revealSource;
+    private readonly Func<string, Task<bool>> _exportDocument;
     private readonly AiSettings _settings;
     private readonly Action<string> _rememberApiKey;
     private readonly Action _saveSettings;
     private readonly string _webView2UserDataDirectory;
     private readonly ProofProjectStore _store = new();
+    private readonly SemaphoreSlim _projectGate = new(1, 1);
     private readonly OpenAiCompatibleClient _client = new();
     private readonly WebView2 _webView = new();
     private readonly Label _loadingLabel = new();
@@ -36,15 +43,29 @@ internal sealed class AgentPanel : UserControl
     private string _sessionApiKey;
     private string _lastAnswer = string.Empty;
     private IReadOnlyList<AiSource> _lastSources = [];
+    private IReadOnlyList<string> _availableModels = [];
+    private AgentSectionEdit? _pendingSectionEdit;
+    private AgentFileDraft? _pendingFileDraft;
+    private string? _targetDocumentPath;
+    private string _pendingCloudRequest = string.Empty;
+    private string _pendingCloudMode = "auto";
+    private string? _pendingCloudTargetPath;
+    private bool _pendingSemanticCheck;
+    private bool _cloudConsentGranted;
     private CancellationTokenSource? _cancellation;
     private bool _webReady;
     private bool _webViewInitializing;
+
+    public event EventHandler<string>? ModelChanged;
 
     public AgentPanel(
         Func<string?> getWorkspaceRoot,
         Func<string?> getDocumentPath,
         Func<Task<string>> getCurrentMarkdown,
-        Action<string> insertMarkdown,
+        Action<string, string> replaceSection,
+        Func<string, Task> openDocument,
+        Func<string, int, Task> revealSource,
+        Func<string, Task<bool>> exportDocument,
         AiSettings settings,
         string sessionApiKey,
         Action<string> rememberApiKey,
@@ -53,7 +74,10 @@ internal sealed class AgentPanel : UserControl
         _getWorkspaceRoot = getWorkspaceRoot;
         _getDocumentPath = getDocumentPath;
         _getCurrentMarkdown = getCurrentMarkdown;
-        _insertMarkdown = insertMarkdown;
+        _replaceSection = replaceSection;
+        _openDocument = openDocument;
+        _revealSource = revealSource;
+        _exportDocument = exportDocument;
         _settings = settings;
         _sessionApiKey = sessionApiKey;
         _rememberApiKey = rememberApiKey;
@@ -94,6 +118,13 @@ internal sealed class AgentPanel : UserControl
         try
         {
             await EnsureProjectAsync();
+            var activePath = _getDocumentPath();
+            if (!string.IsNullOrWhiteSpace(activePath)
+                && !PathEquals(activePath, _targetDocumentPath ?? string.Empty))
+            {
+                _targetDocumentPath = activePath;
+                _lastCiResult = null;
+            }
             SendState();
         }
         catch (Exception exception)
@@ -103,6 +134,35 @@ internal sealed class AgentPanel : UserControl
     }
 
     public void FocusComposer() => SendToWeb(new { type = "focus" });
+
+    public void OpenModelPicker() => SendToWeb(new { type = "open_model_picker" });
+
+    public void OpenSettings() => SendToWeb(new { type = "open_settings" });
+
+    public void SwitchPage(string page) => SendToWeb(new { type = "switch_page", page });
+
+    public void InvalidateDocumentAnalysis()
+    {
+        if (_lastCiResult is null) return;
+        _lastCiResult = null;
+        SendState();
+    }
+
+    public void ResetWorkspaceContext(string? workspaceRoot)
+    {
+        _loadedRoot = null;
+        _targetDocumentPath = null;
+        _lastCiResult = null;
+        _pendingSectionEdit = null;
+        _pendingFileDraft = null;
+        _project = new ProofProject
+        {
+            Title = string.IsNullOrWhiteSpace(workspaceRoot)
+                ? "尚未打开项目"
+                : Path.GetFileName(workspaceRoot.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)),
+        };
+        SendState();
+    }
 
     protected override void Dispose(bool disposing)
     {
@@ -163,7 +223,6 @@ internal sealed class AgentPanel : UserControl
                     _loadingLabel.Visible = false;
                     _webView.Visible = true;
                     _webView.BringToFront();
-                    BeginInvoke(NormalizeHostSplit);
                     await RefreshContextAsync();
                     break;
                 case "send":
@@ -171,15 +230,49 @@ internal sealed class AgentPanel : UserControl
                         ? promptValue.GetString() ?? string.Empty
                         : string.Empty;
                     var mode = root.TryGetProperty("mode", out var modeValue)
-                        ? modeValue.GetString() ?? "plan"
-                        : "plan";
-                    await RunAgentAsync(prompt, mode);
+                        ? modeValue.GetString() ?? "auto"
+                        : "auto";
+                    await RunAgentAsync(prompt, mode, ReadString(root, "targetPath"));
                     break;
                 case "cancel":
                     _cancellation?.Cancel();
                     break;
                 case "apply":
                     await ApplyLastAnswerAsync();
+                    break;
+                case "select_target_document":
+                    var targetPath = ReadString(root, "path");
+                    if (!string.IsNullOrWhiteSpace(targetPath)) await SelectTargetDocumentAsync(targetPath);
+                    break;
+                case "open_source":
+                    var sourcePath = ReadString(root, "path");
+                    var sourceLine = root.TryGetProperty("line", out var lineValue) && lineValue.TryGetInt32(out var parsedLine)
+                        ? Math.Max(1, parsedLine)
+                        : 1;
+                    if (!string.IsNullOrWhiteSpace(sourcePath) && File.Exists(sourcePath))
+                        await _revealSource(sourcePath, sourceLine);
+                    break;
+                case "grant_cloud_consent":
+                    _cloudConsentGranted = true;
+                    var pendingRequest = _pendingCloudRequest;
+                    var pendingMode = _pendingCloudMode;
+                    var pendingTarget = _pendingCloudTargetPath;
+                    var pendingSemanticCheck = _pendingSemanticCheck;
+                    _pendingCloudRequest = string.Empty;
+                    _pendingCloudTargetPath = null;
+                    _pendingSemanticCheck = false;
+                    SendToWeb(new { type = "cloud_consent_resolved" });
+                    if (!string.IsNullOrWhiteSpace(pendingRequest)) await RunAgentAsync(pendingRequest, pendingMode, pendingTarget);
+                    else if (pendingSemanticCheck) await RunDocumentCheckAsync(announce: true, semantic: true);
+                    break;
+                case "deny_cloud_consent":
+                    _pendingCloudRequest = string.Empty;
+                    _pendingCloudTargetPath = null;
+                    var deniedSemanticCheck = _pendingSemanticCheck;
+                    _pendingSemanticCheck = false;
+                    SendToWeb(new { type = "cloud_consent_resolved" });
+                    if (deniedSemanticCheck)
+                        SendToWeb(new { type = "toast", message = "已取消云端语义核验，保留本地快速检查结果" });
                     break;
                 case "import_requirements":
                     await ImportRequirementsAsync();
@@ -188,7 +281,7 @@ internal sealed class AgentPanel : UserControl
                     await ImportSourcesAsync();
                     break;
                 case "run_check":
-                    await RunDocumentCheckAsync(announce: true);
+                    await RunDocumentCheckAsync(announce: true, semantic: true);
                     break;
                 case "export":
                     await ExportCompanionFilesAsync();
@@ -196,16 +289,25 @@ internal sealed class AgentPanel : UserControl
                 case "settings":
                     ShowAgentSettings();
                     break;
+                case "select_model":
+                    SelectModel(root);
+                    break;
+                case "save_settings":
+                    SaveAgentSettings(root);
+                    break;
+                case "test_connection":
+                    await TestConnectionAsync(root);
+                    break;
             }
         }
         catch (Exception exception)
         {
-            SendError(exception.Message);
+            SendAgentFailure(exception);
             SetBusy(false, string.Empty);
         }
     }
 
-    private async Task RunAgentAsync(string request, string mode)
+    private async Task RunAgentAsync(string request, string mode, string? requestedTargetPath = null)
     {
         if (string.IsNullOrWhiteSpace(request))
         {
@@ -215,30 +317,84 @@ internal sealed class AgentPanel : UserControl
 
         try
         {
+            if ((_pendingSectionEdit is not null || _pendingFileDraft is not null)
+                && AgentDocumentEditService.IsApplyConfirmation(request))
+            {
+                await ApplyLastAnswerAsync();
+                return;
+            }
+            if ((_pendingSectionEdit is not null || _pendingFileDraft is not null)
+                && AgentDocumentEditService.IsApplyCancellation(request))
+            {
+                _pendingSectionEdit = null;
+                _pendingFileDraft = null;
+                SendToWeb(new { type = "toast", message = "已取消上一条修改预览，正文没有变化" });
+                return;
+            }
+
             await EnsureProjectAsync();
+            var targetPath = ResolveTargetDocumentPath(requestedTargetPath);
+            if (!string.IsNullOrWhiteSpace(targetPath)
+                && !PathEquals(targetPath, _getDocumentPath() ?? string.Empty))
+            {
+                await _openDocument(targetPath);
+            }
+            _targetDocumentPath = _getDocumentPath() ?? targetPath;
+            if (AgentDocumentEditService.TryGetExportFormat(request, out var exportFormat))
+            {
+                var opened = await _exportDocument(exportFormat);
+                if (opened)
+                {
+                    SendToWeb(new
+                    {
+                        type = "assistant",
+                        content = $"已打开 {exportFormat.ToUpperInvariant()} 导出窗口。请选择文件名和保存位置，然后点击导出。",
+                        sources = Array.Empty<object>(),
+                        canApply = false,
+                    });
+                }
+                else
+                {
+                    SendToWeb(new
+                    {
+                        type = "assistant",
+                        content = "当前没有可导出的文档。请先在编辑区打开目标文档，再重新发送导出指令。",
+                        sources = Array.Empty<object>(),
+                        canApply = false,
+                    });
+                }
+                return;
+            }
             _cancellation = new CancellationTokenSource();
-            SetBusy(true, "正在读取当前文档", cancellable: true);
+            var targetName = GetTargetDisplayName(_targetDocumentPath);
+            SetBusy(true, $"正在读取 {targetName}", cancellable: true);
             var markdown = await _getCurrentMarkdown();
             if (string.IsNullOrWhiteSpace(markdown) && _project.Sources.Count == 0)
                 throw new InvalidOperationException("请先打开一份文档，或在“上下文”中添加资料。");
 
-            if (ShouldConfirmCloud() && MessageBox.Show(
-                    FindForm(),
-                    "这次任务会把命中的资料片段和你的要求发送到所配置的远程模型。是否继续？",
-                    "确认发送",
-                    MessageBoxButtons.YesNo,
-                    MessageBoxIcon.Question) != DialogResult.Yes)
+            if (ShouldConfirmCloud() && !_cloudConsentGranted)
             {
-                SendToWeb(new { type = "toast", message = "已取消，没有发送资料" });
+                _pendingCloudRequest = request;
+                _pendingCloudMode = mode;
+                _pendingCloudTargetPath = _targetDocumentPath;
+                SendToWeb(new
+                {
+                    type = "cloud_consent_required",
+                    provider = _settings.ProviderName,
+                    message = "云端模型需要接收本次任务命中的资料片段。允许后，本次软件运行期间不再重复询问。",
+                });
                 return;
             }
 
+            var currentOnly = ProofSourceQueryService.ShouldUseOnlyCurrentDocument(request);
             _lastSources = ProofSourceQueryService.BuildSources(
                 _project,
                 markdown,
-                Path.GetFileName(_getDocumentPath()) ?? "当前文档",
+                targetName,
+                _targetDocumentPath,
                 request.Trim(),
-                _settings.MaxSources);
+                _settings.MaxSources,
+                currentOnly);
             if (_lastSources.Count == 0)
                 throw new InvalidOperationException("没有找到可供 Agent 使用的文本资料。");
 
@@ -249,10 +405,32 @@ internal sealed class AgentPanel : UserControl
                 detail = $"正在调用 {_settings.Model}",
             });
 
-            var isPlan = string.Equals(mode, "plan", StringComparison.OrdinalIgnoreCase);
-            var instruction = isPlan
-                ? "只分析并给出分步计划。指出依据、风险和需要用户确认的事项，不生成可直接插入正文的完整段落"
-                : "生成可直接审阅的 Markdown 修改建议。保持原文风格，为重要事实标注来源，并明确资料不足之处";
+            var behavior = AgentDocumentEditService.Classify(request, mode);
+            _pendingSectionEdit = null;
+            _pendingFileDraft = null;
+            var scopeInstruction = currentOnly
+                ? $"操作主文件是“{targetName}”。本任务只允许依据该文件回答；“当前文档/这个文件”只指它"
+                : $"操作主文件是“{targetName}”。其他资料只用于核验或补充，不能取代主文件的任务对象";
+            var rewriteContext = string.Empty;
+            if (behavior == AgentTaskBehavior.EditPreview
+                && AgentDocumentEditService.TryGetTargetSection(
+                    markdown,
+                    request.Trim(),
+                    out var rewriteHeading,
+                    out var originalSection))
+            {
+                var boundedOriginal = originalSection.Length > 6000
+                    ? originalSection[..6000] + "\n（原章节过长，此处已截断）"
+                    : originalSection;
+                rewriteContext = $"。待改写章节是“{rewriteHeading}”，原文如下：\n<original-section>\n{boundedOriginal}\n</original-section>";
+            }
+            var instruction = behavior switch
+            {
+                AgentTaskBehavior.PlanOnly => $"{scopeInstruction}。用户明确要求规划。给出精炼、可执行的步骤和必要风险，不要反复询问可从主文件直接判断的问题",
+                AgentTaskBehavior.EditPreview => $"{scopeInstruction}{rewriteContext}。直接给出修改预览，不要先输出计划。改写必须重新组织论述顺序、句式和信息层级，改善章节目的、逻辑衔接和表达质量；不得仅复制原文、只插入一条资料、只改标题或只做同义替换。保留可核验事实，不得为了显得变化大而编造内容。把适合直接写入正文的完整章节放进唯一一个 ```markdown 代码块；代码块内不得混入核查过程、风险说明、待补资料或临时来源编号。代码块外再简短说明本次实质改进了什么、依据与风险，不要声称已经写入",
+                AgentTaskBehavior.CreateFilePreview => $"{scopeInstruction}。{AgentDocumentEditService.BuildCreateFileGuidance(request.Trim())}把完整文件正文放进唯一一个 ```markdown 代码块；代码块外只简短说明将创建的文件，不要声称已经创建",
+                _ => $"{scopeInstruction}。直接完成只读任务，不要输出分步计划，不要改写正文，不要追问可从主文件判断的问题。严格遵守字数、表格或清单要求；找不到证据时明确写缺少证据，绝不补造",
+            };
             _lastAnswer = await _client.CompleteAsync(
                 _settings.Endpoint,
                 _settings.Model,
@@ -262,23 +440,82 @@ internal sealed class AgentPanel : UserControl
                 _lastSources,
                 _cancellation.Token);
 
+            var canApply = false;
+            if (behavior == AgentTaskBehavior.EditPreview)
+            {
+                _lastAnswer = AgentDocumentEditService.NormalizePreviewFence(_lastAnswer);
+                var parsed = AgentDocumentEditService.TryCreateSectionEdit(
+                    markdown,
+                    request.Trim(),
+                    _lastAnswer,
+                    out _pendingSectionEdit);
+                var quality = parsed && _pendingSectionEdit is not null
+                    ? AgentDocumentEditService.EvaluateSectionEditQuality(markdown, _pendingSectionEdit)
+                    : new AgentEditQualityResult(false, "模型没有返回可识别的完整章节预览。", 1);
+                canApply = parsed
+                    && (!AgentDocumentEditService.RequiresMaterialRewrite(request) || quality.Passed);
+                if (!canApply)
+                {
+                    _pendingSectionEdit = null;
+                    _lastAnswer += $"\n\n> 预览未通过改写质量检查：{quality.Message}正文没有变化，也不会显示替换按钮。请补充希望加强的重点后重新生成。";
+                }
+            }
+            if (behavior == AgentTaskBehavior.CreateFilePreview)
+            {
+                _lastAnswer = AgentDocumentEditService.NormalizePreviewFence(_lastAnswer);
+                var root = ResolveProjectRoot();
+                canApply = root is not null && AgentDocumentEditService.TryCreateFileDraft(
+                    root,
+                    request.Trim(),
+                    _lastAnswer,
+                    out _pendingFileDraft);
+                if (!canApply)
+                {
+                    _pendingFileDraft = null;
+                    _lastAnswer += "\n\n> 文件预览格式无法识别，因此没有显示创建按钮。请重新生成；项目文件没有发生变化。";
+                }
+            }
+            if (canApply && _pendingSectionEdit is not null)
+            {
+                _pendingSectionEdit = _pendingSectionEdit with
+                {
+                    TargetDocumentPath = _targetDocumentPath,
+                    OriginalDocumentHash = ComputeDocumentHash(markdown),
+                };
+            }
+
+            var displayedSources = SelectReferencedSources(_lastAnswer, _lastSources, currentOnly);
+
             SendToWeb(new
             {
                 type = "assistant",
                 content = _lastAnswer,
-                sources = _lastSources.Select(source => $"{source.Id} · {source.DisplayPath}:{source.StartLine}").ToArray(),
-                canApply = !isPlan,
+                sources = displayedSources.Select(FormatSource).ToArray(),
+                canApply,
+                applyLabel = _pendingFileDraft is not null
+                    ? $"创建“{_pendingFileDraft.DisplayPath}”"
+                    : canApply ? $"替换“{_pendingSectionEdit!.TargetHeading}”章节" : string.Empty,
             });
-            AddAudit(isPlan ? "Agent 制定计划" : "Agent 生成建议", request.Trim(), false);
+            AddAudit(behavior switch
+            {
+                AgentTaskBehavior.PlanOnly => "Agent 制定计划",
+                AgentTaskBehavior.EditPreview => "Agent 生成修改预览",
+                AgentTaskBehavior.CreateFilePreview => "Agent 生成新文件预览",
+                _ => "Agent 回答文档问题",
+            }, request.Trim(), false);
             await SaveProjectAsync();
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException) when (_cancellation?.IsCancellationRequested == true)
         {
-            SendToWeb(new { type = "toast", message = "任务已停止，没有修改文档" });
+            SendToWeb(new { type = "cancelled", message = "任务已停止，没有修改文档。你可以调整要求后重新发送。" });
+        }
+        catch (OperationCanceledException exception)
+        {
+            SendAgentFailure(exception);
         }
         catch (Exception exception)
         {
-            SendError(exception.Message);
+            SendAgentFailure(exception);
         }
         finally
         {
@@ -290,21 +527,61 @@ internal sealed class AgentPanel : UserControl
 
     private async Task ApplyLastAnswerAsync()
     {
-        if (string.IsNullOrWhiteSpace(_lastAnswer)) return;
-        if (MessageBox.Show(
-                FindForm(),
-                "确认已经核对建议和来源，并插入到当前光标位置？\n\n插入后仍可在编辑器中撤销。",
-                "应用 Agent 建议",
-                MessageBoxButtons.YesNo,
-                MessageBoxIcon.Question) != DialogResult.Yes)
+        if (_pendingFileDraft is not null)
+        {
+            var draft = _pendingFileDraft;
+            if (File.Exists(draft.TargetPath))
+            {
+                SendToWeb(new { type = "toast", message = $"“{draft.DisplayPath}”已存在，未覆盖；请换一个文件名" });
+                _pendingFileDraft = null;
+                return;
+            }
+            Directory.CreateDirectory(Path.GetDirectoryName(draft.TargetPath)!);
+            var portableFileMarkdown = PortableCitationService.ConvertAgentSourcesToFootnotes(draft.Markdown, _lastSources);
+            await File.WriteAllTextAsync(draft.TargetPath, portableFileMarkdown, Encoding.UTF8);
+            AddAudit("人工确认创建文件", draft.DisplayPath, true);
+            await SaveProjectAsync();
+            await _openDocument(draft.TargetPath);
+            SendToWeb(new { type = "applied" });
+            SendToWeb(new { type = "toast", message = $"已创建“{draft.DisplayPath}”" });
+            _pendingFileDraft = null;
             return;
-
-        var portable = PortableCitationService.ConvertAgentSourcesToFootnotes(_lastAnswer, _lastSources);
-        _insertMarkdown(portable);
-        AddAudit("人工采纳 Agent 建议", $"写入 {portable.Length} 个字符", true);
+        }
+        if (_pendingSectionEdit is null) return;
+        if (!string.IsNullOrWhiteSpace(_pendingSectionEdit.TargetDocumentPath)
+            && !PathEquals(_pendingSectionEdit.TargetDocumentPath, _getDocumentPath() ?? string.Empty))
+        {
+            await _openDocument(_pendingSectionEdit.TargetDocumentPath);
+        }
+        var currentMarkdown = await _getCurrentMarkdown();
+        if (!string.IsNullOrWhiteSpace(_pendingSectionEdit.OriginalDocumentHash)
+            && !string.Equals(_pendingSectionEdit.OriginalDocumentHash, ComputeDocumentHash(currentMarkdown), StringComparison.Ordinal))
+        {
+            SendToWeb(new { type = "toast", message = "预览后正文已经变化，请重新生成修改预览，避免覆盖新内容" });
+            _pendingSectionEdit = null;
+            return;
+        }
+        var portableMarkdown = PortableCitationService.ConvertAgentSourcesToFootnotes(
+            _pendingSectionEdit.ReplacementMarkdown,
+            _lastSources);
+        _replaceSection(_pendingSectionEdit.TargetHeading, portableMarkdown);
+        AddAudit("人工采纳 Agent 建议", $"替换“{_pendingSectionEdit.TargetHeading}”章节", true);
         await SaveProjectAsync();
         SendToWeb(new { type = "applied" });
-        SendToWeb(new { type = "toast", message = "已应用到文档，可使用撤销恢复" });
+        SendToWeb(new { type = "toast", message = $"已替换“{_pendingSectionEdit.TargetHeading}”章节，可在编辑器中撤销" });
+        _pendingSectionEdit = null;
+        _lastCiResult = null;
+    }
+
+    private async Task SelectTargetDocumentAsync(string path)
+    {
+        if (!File.Exists(path)) return;
+        _targetDocumentPath = path;
+        _pendingSectionEdit = null;
+        _pendingFileDraft = null;
+        _lastCiResult = null;
+        await _openDocument(path);
+        SendState();
     }
 
     private async Task ImportRequirementsAsync()
@@ -411,19 +688,75 @@ internal sealed class AgentPanel : UserControl
         }
     }
 
-    private async Task RunDocumentCheckAsync(bool announce)
+    private async Task RunDocumentCheckAsync(bool announce, bool semantic = false)
     {
         try
         {
-            if (announce) SetBusy(true, "正在检查当前文档");
+            if (announce) SetBusy(true, semantic ? "正在准备语义检查" : "正在快速检查当前文档");
             await EnsureProjectAsync();
             var markdown = await _getCurrentMarkdown();
             var root = ResolveProjectRoot() ?? Environment.CurrentDirectory;
             _lastCiResult = DocumentCiService.Analyze(markdown, _project, root);
+            if (semantic && _project.Requirements.Count > 0)
+            {
+                if (ShouldConfirmCloud() && !_cloudConsentGranted)
+                {
+                    _pendingSemanticCheck = true;
+                    await SaveProjectAsync();
+                    SendState();
+                    SendToWeb(new
+                    {
+                        type = "cloud_consent_required",
+                        provider = _settings.ProviderName,
+                        message = "语义核验将把当前主文档和已导入的任务要求发送到所配置的云端模型；不会发送其他项目资料。允许后，本次软件运行期间不再重复询问。",
+                    });
+                    return;
+                }
+
+                SetBusy(true, "正在按语义核验要求", cancellable: true);
+                _cancellation = new CancellationTokenSource();
+                try
+                {
+                    var assessments = await RequirementSemanticReviewService.ReviewAsync(
+                        _client,
+                        _settings.Endpoint,
+                        _settings.Model,
+                        _sessionApiKey,
+                        markdown,
+                        _project.Requirements,
+                        _cloudConsentGranted || !ShouldConfirmCloud(),
+                        _cancellation.Token);
+                    _lastCiResult = DocumentCiService.ApplySemanticAssessments(
+                        _project,
+                        _lastCiResult,
+                        assessments);
+                    AddAudit("语义核验任务要求", $"核验 {_project.Requirements.Count} 项要求", false);
+                }
+                catch (OperationCanceledException) when (_cancellation?.IsCancellationRequested == true)
+                {
+                    SendToWeb(new { type = "toast", message = "语义核验已停止，保留本地快速检查结果" });
+                }
+                catch (Exception exception) when (exception is HttpRequestException or JsonException or InvalidDataException or UnauthorizedAccessException or TaskCanceledException)
+                {
+                    SendToWeb(new
+                    {
+                        type = "semantic_check_failed",
+                        message = $"语义核验失败：{exception.Message} 已保留本地快速检查结果。",
+                    });
+                }
+                finally
+                {
+                    _cancellation?.Dispose();
+                    _cancellation = null;
+                }
+            }
             await SaveProjectAsync();
             SendState();
             if (announce)
-                SendToWeb(new { type = "toast", message = $"检查完成，发现 {_lastCiResult.ErrorCount} 项需处理问题" });
+            {
+                var label = _lastCiResult.SemanticVerified ? "语义核验完成" : "快速检查完成";
+                SendToWeb(new { type = "toast", message = $"{label}，发现 {_lastCiResult.ErrorCount} 项需处理问题" });
+            }
         }
         catch (Exception exception)
         {
@@ -477,23 +810,47 @@ internal sealed class AgentPanel : UserControl
 
     private async Task EnsureProjectAsync()
     {
-        var root = ResolveProjectRoot();
-        if (root is null)
+        await _projectGate.WaitAsync();
+        try
         {
-            _loadedRoot = null;
-            _project = new ProofProject { Title = "尚未打开项目" };
-            return;
+            var root = ResolveProjectRoot();
+            if (root is null)
+            {
+                _loadedRoot = null;
+                _project = new ProofProject { Title = "尚未打开项目" };
+                return;
+            }
+            if (string.Equals(_loadedRoot, root, StringComparison.OrdinalIgnoreCase)) return;
+
+            var loadedProject = await _store.LoadAsync(root);
+            var synchronized = await SynchronizeWorkspaceAsync(root, loadedProject);
+            var currentRoot = ResolveProjectRoot();
+            if (!string.Equals(currentRoot, root, StringComparison.OrdinalIgnoreCase)) return;
+            if (synchronized) await _store.SaveAsync(root, loadedProject);
+            _project = loadedProject;
+            _loadedRoot = root;
+            _lastCiResult = null;
         }
-        if (string.Equals(_loadedRoot, root, StringComparison.OrdinalIgnoreCase)) return;
-        _project = await _store.LoadAsync(root);
-        _loadedRoot = root;
-        _lastCiResult = null;
+        finally
+        {
+            _projectGate.Release();
+        }
     }
 
     private async Task SaveProjectAsync()
     {
-        var root = ResolveProjectRoot();
-        if (root is not null) await _store.SaveAsync(root, _project);
+        await _projectGate.WaitAsync();
+        try
+        {
+            var root = ResolveProjectRoot();
+            if (root is not null
+                && string.Equals(_loadedRoot, root, StringComparison.OrdinalIgnoreCase))
+                await _store.SaveAsync(root, _project);
+        }
+        finally
+        {
+            _projectGate.Release();
+        }
     }
 
     private string? ResolveProjectRoot()
@@ -512,7 +869,16 @@ internal sealed class AgentPanel : UserControl
         {
             title = requirement.Title,
             description = requirement.Description,
-            covered = requirement.IsCovered,
+            covered = _lastCiResult is not null && requirement.IsCovered,
+            checkedNow = _lastCiResult is not null,
+            coverageState = _lastCiResult is null ? "unchecked" : requirement.CoverageState,
+            matchedHeading = requirement.MatchedHeading,
+            evidence = requirement.EvidenceText,
+            reason = requirement.CoverageReason,
+            startLine = requirement.EvidenceStartLine,
+            endLine = requirement.EvidenceEndLine,
+            confidence = requirement.CoverageConfidence,
+            path = _targetDocumentPath ?? _getDocumentPath(),
         }).ToArray();
         var sources = _project.Sources.Select(source => new
         {
@@ -522,6 +888,17 @@ internal sealed class AgentPanel : UserControl
             trust = source.TrustLevel,
             ready = !string.IsNullOrWhiteSpace(source.ExtractedText),
         }).ToArray();
+        var audits = _project.AuditTrail
+            .OrderByDescending(item => item.AtUtc)
+            .Take(30)
+            .Select(item => new
+            {
+                action = item.Action,
+                detail = item.Detail,
+                time = item.AtUtc.ToLocalTime().ToString("MM-dd HH:mm"),
+                confirmed = item.HumanConfirmed,
+            })
+            .ToArray();
         var check = _lastCiResult is null
             ? null
             : new
@@ -529,6 +906,7 @@ internal sealed class AgentPanel : UserControl
                 coverage = _lastCiResult.CoveragePercent,
                 evidence = _lastCiResult.EvidencePercent,
                 errors = _lastCiResult.ErrorCount,
+                verification = _lastCiResult.SemanticVerified ? "semantic" : "quick",
                 issues = _lastCiResult.Issues.OrderBy(issue => issue.Severity).Select(issue => new
                 {
                     title = issue.Title,
@@ -553,36 +931,181 @@ internal sealed class AgentPanel : UserControl
         SendToWeb(new
         {
             type = "state",
-            documentName = Path.GetFileName(_getDocumentPath()),
+            documentName = GetTargetDisplayName(_targetDocumentPath ?? _getDocumentPath()),
             projectName = string.IsNullOrWhiteSpace(root)
                 ? string.Empty
                 : Path.GetFileName(root.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)),
             model = _settings.Model,
+            providerName = _settings.ProviderName,
+            providerType = _settings.ProviderType,
+            endpoint = _settings.Endpoint,
+            apiKeyConfigured = !string.IsNullOrWhiteSpace(_sessionApiKey),
+            confirmBeforeCloud = _settings.ConfirmBeforeCloud,
+            isLocal = IsLocalEndpoint(_settings.Endpoint),
+            availableModels = _availableModels
+                .Append(_settings.Model)
+                .Where(model => !string.IsNullOrWhiteSpace(model))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray(),
+            documents = EnumerateMarkdownDocuments(root),
             requirements,
             sources,
+            audits,
             check,
         });
     }
 
-    private void NormalizeHostSplit()
+    private async Task<bool> SynchronizeWorkspaceAsync(string root, ProofProject project)
     {
-        if (IsDisposed
-            || Parent is not SplitterPanel panel
-            || panel.Parent is not SplitContainer split
-            || !ReferenceEquals(panel, split.Panel2))
-            return;
+        var changed = false;
+        var currentPath = _getDocumentPath();
+        foreach (var path in EnumerateWorkspaceKnowledgeFiles(root).Take(120))
+        {
+            if (PathEquals(path, currentPath ?? string.Empty)) continue;
+            var info = new FileInfo(path);
+            if (info.Length > 20 * 1024 * 1024) continue;
+            var source = project.Sources.FirstOrDefault(item => PathEquals(item.FilePath, path));
+            if (source is not null
+                && source.FileModifiedAtUtc == info.LastWriteTimeUtc
+                && !string.IsNullOrWhiteSpace(source.ExtractedText))
+                continue;
 
-        var scale = Math.Max(1F, DeviceDpi / 96F);
-        var desiredAgentWidth = (int)Math.Round(430 * scale);
-        var editorMinimum = Math.Max(split.Panel1MinSize, (int)Math.Round(420 * scale));
-        var maximumDistance = Math.Max(
-            split.Panel1MinSize,
-            split.ClientSize.Width - split.SplitterWidth - split.Panel2MinSize);
-        split.SplitterDistance = Math.Clamp(
-            split.ClientSize.Width - split.SplitterWidth - desiredAgentWidth,
-            editorMinimum,
-            maximumDistance);
+            source ??= new ProofSource { FilePath = path, AddedAtUtc = DateTime.UtcNow };
+            if (!project.Sources.Contains(source)) project.Sources.Add(source);
+            source.DisplayName = Path.GetRelativePath(root, path).Replace('\\', '/');
+            source.Kind = SourceTextExtractor.DetectKind(path);
+            source.TrustLevel = GuessTrustLevel(path);
+            source.FileModifiedAtUtc = info.LastWriteTimeUtc;
+            try
+            {
+                var (text, status) = await SourceTextExtractor.ExtractAsync(path);
+                source.ExtractedText = text;
+                source.ExtractionStatus = status;
+
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or InvalidDataException or NotSupportedException)
+            {
+                source.ExtractedText = string.Empty;
+                source.ExtractionStatus = $"索引失败：{exception.Message}";
+            }
+            changed = true;
+        }
+        return changed;
     }
+
+    private static IEnumerable<string> EnumerateWorkspaceKnowledgeFiles(string root)
+    {
+        var supported = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        { ".md", ".markdown", ".txt", ".pdf", ".docx", ".csv", ".tsv", ".json" };
+        var ignored = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        { ".git", ".markleaf", "bin", "obj", "node_modules", ".vs" };
+        var pending = new Stack<string>();
+        pending.Push(root);
+        while (pending.Count > 0)
+        {
+            var directory = pending.Pop();
+            string[] directories;
+            string[] files;
+            try
+            {
+                directories = Directory.GetDirectories(directory);
+                files = Directory.GetFiles(directory);
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+            {
+                continue;
+            }
+            foreach (var child in directories)
+                if (!ignored.Contains(Path.GetFileName(child))) pending.Push(child);
+            foreach (var file in files)
+                if (supported.Contains(Path.GetExtension(file))) yield return file;
+        }
+    }
+
+    private object[] EnumerateMarkdownDocuments(string? root)
+    {
+        if (string.IsNullOrWhiteSpace(root) || !Directory.Exists(root)) return [];
+        var current = _targetDocumentPath ?? _getDocumentPath();
+        return EnumerateWorkspaceKnowledgeFiles(root)
+            .Where(path => Path.GetExtension(path).Equals(".md", StringComparison.OrdinalIgnoreCase)
+                || Path.GetExtension(path).Equals(".markdown", StringComparison.OrdinalIgnoreCase))
+            .Select(path => new
+            {
+                name = Path.GetRelativePath(root, path).Replace('\\', '/'),
+                path,
+                active = PathEquals(path, current ?? string.Empty),
+            })
+            .Cast<object>()
+            .ToArray();
+    }
+
+    private object FormatSource(AiSource source)
+    {
+        var location = !string.IsNullOrWhiteSpace(source.Locator)
+            ? source.Locator
+            : Path.GetExtension(source.DisplayPath).Equals(".pdf", StringComparison.OrdinalIgnoreCase)
+                ? "PDF"
+                : source.StartLine == source.EndLine
+                    ? $"第 {source.StartLine} 行"
+                    : $"第 {source.StartLine}-{source.EndLine} 行";
+        return new
+        {
+            id = source.Id,
+            label = $"{source.Id}  {source.DisplayPath}  {location}",
+            path = ResolveSourcePath(source.DisplayPath),
+            line = source.StartLine,
+        };
+    }
+
+    private string? ResolveTargetDocumentPath(string? requestedPath)
+    {
+        if (!string.IsNullOrWhiteSpace(requestedPath) && File.Exists(requestedPath)) return requestedPath;
+        if (!string.IsNullOrWhiteSpace(_targetDocumentPath) && File.Exists(_targetDocumentPath)) return _targetDocumentPath;
+        return _getDocumentPath();
+    }
+
+    private string GetTargetDisplayName(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path)) return "当前文档";
+        var root = ResolveProjectRoot();
+        if (!string.IsNullOrWhiteSpace(root))
+        {
+            try { return Path.GetRelativePath(root, path).Replace('\\', '/'); }
+            catch { }
+        }
+        return Path.GetFileName(path);
+    }
+
+    private string ResolveSourcePath(string displayPath)
+    {
+        var matching = _project.Sources.FirstOrDefault(source =>
+            string.Equals(source.DisplayName, displayPath, StringComparison.OrdinalIgnoreCase));
+        if (matching is not null && File.Exists(matching.FilePath)) return matching.FilePath;
+        var root = ResolveProjectRoot();
+        if (string.IsNullOrWhiteSpace(root)) return string.Empty;
+        try
+        {
+            var candidate = Path.GetFullPath(Path.Combine(root, displayPath.Replace('/', Path.DirectorySeparatorChar)));
+            return File.Exists(candidate) ? candidate : string.Empty;
+        }
+        catch { return string.Empty; }
+    }
+
+    private static IReadOnlyList<AiSource> SelectReferencedSources(
+        string answer,
+        IReadOnlyList<AiSource> sources,
+        bool currentOnly)
+    {
+        var ids = Regex.Matches(answer, @"\[(S\d+)\]")
+            .Select(match => match.Groups[1].Value)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var selected = sources.Where(source => ids.Contains(source.Id)).ToArray();
+        if (selected.Length > 0) return selected;
+        return currentOnly && sources.Count > 0 ? [sources[0]] : [];
+    }
+
+    private static string ComputeDocumentHash(string markdown) =>
+        Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(markdown ?? string.Empty)));
 
     private void SetBusy(bool busy, string label, bool cancellable = false)
     {
@@ -591,6 +1114,34 @@ internal sealed class AgentPanel : UserControl
     }
 
     private void SendError(string message) => SendToWeb(new { type = "error", message });
+
+    private void SendAgentFailure(Exception exception)
+    {
+        if (exception is HttpRequestException or TaskCanceledException or OperationCanceledException)
+        {
+            var local = IsLocalEndpoint(_settings.Endpoint);
+            var unauthorized = exception.Message.Contains("401", StringComparison.Ordinal)
+                || exception.Message.Contains("403", StringComparison.Ordinal);
+            SendToWeb(new
+            {
+                type = "connection_error",
+                title = exception is TaskCanceledException or OperationCanceledException
+                    ? "模型响应超时"
+                    : unauthorized
+                    ? "API 身份验证失败"
+                    : local ? "本地模型未连接" : "无法连接模型服务",
+                detail = exception is TaskCanceledException or OperationCanceledException
+                    ? "模型在 3 分钟内没有返回结果。请先测试连接，确认模型 ID 可用后重试；也可以减少一次发送的资料数量。"
+                    : unauthorized
+                    ? "请检查 API Key、Base URL 和模型权限。"
+                    : local
+                        ? "没有连接到 Ollama。请先启动 Ollama，或改用你自己的 API。"
+                        : "请检查网络、Base URL 与服务状态，然后重试。",
+            });
+            return;
+        }
+        SendError(exception.Message);
+    }
 
     private void SendToWeb(object payload)
     {
@@ -656,6 +1207,100 @@ internal sealed class AgentPanel : UserControl
         SendToWeb(new { type = "toast", message = "Agent 设置已保存" });
     }
 
+    private void SelectModel(JsonElement root)
+    {
+        var model = ReadString(root, "model");
+        if (string.IsNullOrWhiteSpace(model)) return;
+        _settings.Model = model.Trim();
+        _saveSettings();
+        ModelChanged?.Invoke(this, _settings.Model);
+        SendState();
+        SendToWeb(new { type = "toast", message = $"已切换到 {_settings.Model}" });
+    }
+
+    private void SaveAgentSettings(JsonElement root)
+    {
+        var endpoint = ReadString(root, "endpoint").Trim();
+        var model = ReadString(root, "model").Trim();
+        if (string.IsNullOrWhiteSpace(endpoint))
+            throw new ArgumentException("请填写 API Base URL。");
+        _ = OpenAiCompatibleClient.BuildModelsUrl(endpoint);
+        if (string.IsNullOrWhiteSpace(model))
+            throw new ArgumentException("请填写模型 ID，或先测试连接并选择模型。");
+
+        _settings.ProviderType = ReadString(root, "providerType") is "ollama"
+            ? "ollama"
+            : "openai-compatible";
+        var providerName = ReadString(root, "providerName").Trim();
+        _settings.ProviderName = string.IsNullOrWhiteSpace(providerName)
+            ? (_settings.ProviderType == "ollama" ? "Ollama" : "自定义 API")
+            : providerName;
+        _settings.Endpoint = endpoint;
+        _settings.Model = model;
+        _settings.PrivacyMode = IsLocalEndpoint(endpoint) ? "local" : "cloud";
+        if (root.TryGetProperty("confirmBeforeCloud", out var confirmValue)
+            && confirmValue.ValueKind is JsonValueKind.True or JsonValueKind.False)
+            _settings.ConfirmBeforeCloud = confirmValue.GetBoolean();
+
+        var apiKey = ReadString(root, "apiKey");
+        if (!string.IsNullOrEmpty(apiKey))
+        {
+            _sessionApiKey = apiKey.Trim();
+            _rememberApiKey(_sessionApiKey);
+        }
+        _saveSettings();
+        ModelChanged?.Invoke(this, _settings.Model);
+        SendState();
+        SendToWeb(new { type = "settings_saved" });
+        SendToWeb(new { type = "toast", message = "模型配置已保存" });
+    }
+
+    private async Task TestConnectionAsync(JsonElement root)
+    {
+        var endpoint = ReadString(root, "endpoint").Trim();
+        var apiKey = ReadString(root, "apiKey");
+        if (string.IsNullOrWhiteSpace(apiKey)) apiKey = _sessionApiKey;
+        SendToWeb(new { type = "connection_testing" });
+        try
+        {
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+            var models = await _client.ListModelsAsync(endpoint, apiKey, timeout.Token);
+            _availableModels = models;
+            SendToWeb(new
+            {
+                type = "connection_result",
+                success = true,
+                message = models.Count == 0
+                    ? "连接成功，但服务没有返回模型列表。你仍可手动填写模型 ID。"
+                    : $"连接成功，发现 {models.Count} 个模型。",
+                models,
+            });
+        }
+        catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException or JsonException)
+        {
+            var local = IsLocalEndpoint(endpoint);
+            SendToWeb(new
+            {
+                type = "connection_result",
+                success = false,
+                message = local
+                    ? "没有连接到 Ollama。请确认 Ollama 已启动并监听 11434 端口。"
+                    : "连接失败。请检查 Base URL、API Key、网络和服务权限。",
+            });
+        }
+    }
+
+    private static string ReadString(JsonElement root, string name) =>
+        root.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String
+            ? value.GetString() ?? string.Empty
+            : string.Empty;
+
+    private static bool IsLocalEndpoint(string endpoint)
+    {
+        if (!Uri.TryCreate(endpoint, UriKind.Absolute, out var uri)) return false;
+        return uri.IsLoopback || uri.Host.Equals("localhost", StringComparison.OrdinalIgnoreCase);
+    }
+
     private static void AddSettingsRow(TableLayoutPanel layout, int row, string label, Control control)
     {
         layout.Controls.Add(new Label
@@ -693,8 +1338,7 @@ internal sealed class AgentPanel : UserControl
     private bool ShouldConfirmCloud()
     {
         if (!_settings.ConfirmBeforeCloud) return false;
-        if (!Uri.TryCreate(_settings.Endpoint, UriKind.Absolute, out var uri)) return true;
-        return !uri.IsLoopback && !uri.Host.Equals("localhost", StringComparison.OrdinalIgnoreCase);
+        return !IsLocalEndpoint(_settings.Endpoint);
     }
 
     private void ShowOpenProjectMessage()

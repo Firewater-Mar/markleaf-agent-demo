@@ -11,7 +11,7 @@ public sealed class WorkspaceServiceTests
     public void Setup() => LocTestHelper.EnsureInitialized();
 
     [TestMethod]
-    public async Task GetChildrenAsync_SortsFoldersBeforeFilesAndSkipsHiddenEntries()
+    public async Task GetChildrenAsync_ShowsAllProjectFilesSortsFoldersFirstAndSkipsHiddenEntries()
     {
         var root = Path.Combine(Path.GetTempPath(), "markleaf-workspace-tests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(root);
@@ -30,7 +30,7 @@ public sealed class WorkspaceServiceTests
             var entries = await new WorkspaceService().GetChildrenAsync(root);
 
             CollectionAssert.AreEqual(
-                new[] { "a-folder", "z-folder", "a.md", "b.md", "notes.txt" },
+                new[] { "a-folder", "z-folder", "a.md", "b.md", "ignored.json", "notes.txt" },
                 entries.Select(entry => entry.Name).ToArray());
         }
         finally
@@ -107,7 +107,7 @@ public sealed class WorkspaceServiceTests
 
             var entries = await new WorkspaceService().GetChildrenAsync(root);
 
-            CollectionAssert.AreEqual(new[] { "upper.MD" }, entries.Select(entry => entry.Name).ToArray());
+            CollectionAssert.AreEqual(new[] { "markdown.markdown", "upper.MD" }, entries.Select(entry => entry.Name).ToArray());
         }
         finally
         {
@@ -127,12 +127,46 @@ public sealed class WorkspaceServiceTests
 
             var entries = await new WorkspaceService().GetChildrenAsync(root);
 
-            CollectionAssert.AreEqual(new[] { "notes.TXT" }, entries.Select(entry => entry.Name).ToArray());
+            CollectionAssert.AreEqual(new[] { "ignored.json", "notes.TXT" }, entries.Select(entry => entry.Name).ToArray());
         }
         finally
         {
             Directory.Delete(root, true);
         }
+    }
+
+    [TestMethod]
+    public async Task GetChildrenAsync_IncludesAgentReferenceAndAssetFiles()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "markleaf-workspace-tests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        try
+        {
+            foreach (var name in new[] { "report.pdf", "brief.docx", "data.csv", "cover.png" })
+            {
+                await File.WriteAllBytesAsync(Path.Combine(root, name), [1, 2, 3]);
+            }
+
+            var entries = await new WorkspaceService().GetChildrenAsync(root);
+
+            CollectionAssert.AreEqual(
+                new[] { "brief.docx", "cover.png", "data.csv", "report.pdf" },
+                entries.Select(entry => entry.Name).ToArray());
+        }
+        finally
+        {
+            Directory.Delete(root, true);
+        }
+    }
+
+    [TestMethod]
+    public void IsEditorDocument_OnlyMarksMarkdownAndPlainTextAsEditable()
+    {
+        Assert.IsTrue(WorkspaceService.IsEditorDocument("document.md"));
+        Assert.IsTrue(WorkspaceService.IsEditorDocument("document.markdown"));
+        Assert.IsTrue(WorkspaceService.IsEditorDocument("notes.txt"));
+        Assert.IsFalse(WorkspaceService.IsEditorDocument("report.pdf"));
+        Assert.IsFalse(WorkspaceService.IsEditorDocument("image.png"));
     }
 
     [TestMethod]

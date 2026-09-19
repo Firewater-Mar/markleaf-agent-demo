@@ -92,6 +92,7 @@ public sealed class JsonSettingsService : ISettingsService
         window.Width = WindowPlacementCalculator.ToLogicalPixels(window.Width, window.Dpi);
         window.Height = WindowPlacementCalculator.ToLogicalPixels(window.Height, window.Dpi);
         window.WorkspaceWidth = WindowPlacementCalculator.ToLogicalPixels(window.WorkspaceWidth, window.Dpi);
+        window.AgentWidth = WindowPlacementCalculator.ToLogicalPixels(window.AgentWidth, window.Dpi);
         window.OutlineWidth = WindowPlacementCalculator.ToLogicalPixels(window.OutlineWidth, window.Dpi);
         settings.MainWindow = window;
         settings.Workspace ??= new WorkspaceSettings();
@@ -213,6 +214,12 @@ public sealed class JsonSettingsService : ISettingsService
 
     private static void NormalizeAi(AiSettings ai)
     {
+        ai.ProviderType = ai.ProviderType is "ollama" or "openai-compatible"
+            ? ai.ProviderType
+            : "ollama";
+        ai.ProviderName = string.IsNullOrWhiteSpace(ai.ProviderName)
+            ? (ai.ProviderType == "ollama" ? "Ollama" : "OpenAI 兼容服务")
+            : ai.ProviderName.Trim();
         ai.Endpoint = string.IsNullOrWhiteSpace(ai.Endpoint)
             ? "http://localhost:11434/v1"
             : ai.Endpoint.Trim();

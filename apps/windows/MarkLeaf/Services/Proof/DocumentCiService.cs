@@ -37,9 +37,23 @@ internal static partial class DocumentCiService
                 .Select(heading => (heading, Score: keywords.Count(keyword => heading.Title.Contains(keyword, StringComparison.OrdinalIgnoreCase))))
                 .OrderByDescending(item => item.Score)
                 .FirstOrDefault();
-            var contentMatch = keywords.Count(keyword => markdown.Contains(keyword, StringComparison.OrdinalIgnoreCase));
-            requirement.IsCovered = best.Score > 0 || contentMatch >= Math.Min(2, keywords.Count);
+            // “已覆盖”必须能定位到对应章节。仅在正文别处碰到一两个
+            // 关键词只能说明“可能相关”，不能据此通过比赛要求检查。
+            var compactTitle = Compact(requirement.Title);
+            var exactHeading = compactTitle.Length > 0 && headings.Any(heading =>
+                Compact(heading.Title).Contains(compactTitle, StringComparison.OrdinalIgnoreCase));
+            var minimumHeadingTerms = Math.Min(2, keywords.Count);
+            requirement.IsCovered = exactHeading
+                || (minimumHeadingTerms > 0 && best.Score >= minimumHeadingTerms);
             requirement.MatchedHeading = best.Score > 0 ? best.heading.Title : string.Empty;
+            requirement.CoverageState = requirement.IsCovered ? "quick-covered" : "quick-missing";
+            requirement.EvidenceStartLine = best.Score > 0 ? best.heading.Number : null;
+            requirement.EvidenceEndLine = best.Score > 0 ? best.heading.Number : null;
+            requirement.EvidenceText = best.Score > 0 ? best.heading.Title : string.Empty;
+            requirement.CoverageReason = requirement.IsCovered
+                ? "快速检查发现了标题关键词匹配，尚未进行语义核验。"
+                : "快速检查未找到对应标题，尚未进行语义核验。";
+            requirement.CoverageConfidence = null;
             if (requirement.IsCovered)
             {
                 coveredRequirements++;
@@ -124,6 +138,7 @@ internal static partial class DocumentCiService
             ErrorCount = issues.Count(issue => issue.Severity == ProofIssueSeverity.Error),
             WarningCount = issues.Count(issue => issue.Severity == ProofIssueSeverity.Warning),
             InfoCount = issues.Count(issue => issue.Severity == ProofIssueSeverity.Info),
+            SemanticVerified = false,
         };
         return new ProofCiResult(
             issues,
@@ -132,7 +147,100 @@ internal static partial class DocumentCiService
             coveredRequirements,
             evidenceCount,
             claimCount,
-            supportedClaimCount);
+            supportedClaimCount,
+            SemanticVerified: false);
+    }
+
+    public static ProofCiResult ApplySemanticAssessments(
+        ProofProject project,
+        ProofCiResult quickResult,
+        IReadOnlyList<RequirementCoverageAssessment> assessments)
+    {
+        var byId = assessments.ToDictionary(item => item.RequirementId, StringComparer.OrdinalIgnoreCase);
+        var coveredCount = 0;
+        foreach (var requirement in project.Requirements)
+        {
+            if (!byId.TryGetValue(requirement.Id, out var assessment))
+            {
+                requirement.IsCovered = false;
+                requirement.CoverageState = "missing";
+                requirement.EvidenceStartLine = null;
+                requirement.EvidenceEndLine = null;
+                requirement.EvidenceText = string.Empty;
+                requirement.CoverageReason = "语义检查没有返回这一项要求，按未覆盖处理。";
+                requirement.CoverageConfidence = null;
+                continue;
+            }
+
+            requirement.CoverageState = assessment.State;
+            requirement.IsCovered = assessment.State == "covered";
+            requirement.MatchedHeading = assessment.Heading;
+            requirement.EvidenceStartLine = assessment.StartLine;
+            requirement.EvidenceEndLine = assessment.EndLine;
+            requirement.EvidenceText = assessment.Evidence;
+            requirement.CoverageReason = assessment.Reason;
+            requirement.CoverageConfidence = assessment.Confidence;
+            if (requirement.IsCovered) coveredCount++;
+        }
+
+        var issues = quickResult.Issues
+            .Where(issue => !string.Equals(issue.Category, "要求覆盖", StringComparison.Ordinal))
+            .ToList();
+        foreach (var requirement in project.Requirements)
+        {
+            var locator = requirement.EvidenceStartLine is { } line
+                ? $"第 {line}{(requirement.EvidenceEndLine > line ? $"-{requirement.EvidenceEndLine}" : string.Empty)} 行"
+                : "未定位到正文证据";
+            switch (requirement.CoverageState)
+            {
+                case "covered":
+                    break;
+                case "partial":
+                    issues.Add(new ProofIssue(
+                        ProofIssueSeverity.Warning,
+                        "要求覆盖",
+                        $"部分覆盖：{requirement.Title}",
+                        $"{requirement.CoverageReason}（{locator}）",
+                        requirement.EvidenceStartLine));
+                    break;
+                default:
+                    issues.Add(new ProofIssue(
+                        requirement.Required ? ProofIssueSeverity.Error : ProofIssueSeverity.Warning,
+                        "要求覆盖",
+                        $"未覆盖：{requirement.Title}",
+                        requirement.CoverageReason,
+                        requirement.EvidenceStartLine));
+                    break;
+            }
+        }
+        if (project.Requirements.Count > 0 && coveredCount == project.Requirements.Count)
+        {
+            issues.Add(new ProofIssue(
+                ProofIssueSeverity.Passed,
+                "要求覆盖",
+                "所有任务要求均有正文证据",
+                "语义核验已完成，仍建议人工确认关键表述。"));
+        }
+
+        project.LastRun = new ProofRunSummary
+        {
+            RequirementCount = project.Requirements.Count,
+            CoveredRequirementCount = coveredCount,
+            EvidenceCount = quickResult.EvidenceCount,
+            ErrorCount = issues.Count(issue => issue.Severity == ProofIssueSeverity.Error),
+            WarningCount = issues.Count(issue => issue.Severity == ProofIssueSeverity.Warning),
+            InfoCount = issues.Count(issue => issue.Severity == ProofIssueSeverity.Info),
+            SemanticVerified = true,
+        };
+        return new ProofCiResult(
+            issues,
+            quickResult.Claims,
+            quickResult.RequirementCount,
+            coveredCount,
+            quickResult.EvidenceCount,
+            quickResult.ClaimCount,
+            quickResult.SupportedClaimCount,
+            SemanticVerified: true);
     }
 
     private static bool LooksLikeClaim(string line)
@@ -143,20 +251,28 @@ internal static partial class DocumentCiService
 
     private static IReadOnlyList<string> ExtractKeywords(string text)
     {
-        var terms = Regex.Matches(text, @"[\p{L}\p{N}]{2,}")
-            .Select(match => match.Value)
-            .Where(value => value is not ("必须" or "需要" or "要求" or "包含" or "说明"))
+        var terms = Regex.Matches(text, @"[A-Za-z][A-Za-z0-9.+#_-]{1,}")
+            .Select(match => match.Value.Trim('-', '_'))
+            .Where(value => !RequirementIdRegex().IsMatch(value))
+            .ToList();
+        var compactChinese = new string(text
+            .Where(character => character is >= '\u3400' and <= '\u9fff')
+            .ToArray());
+        var chineseTerms = Enumerable.Range(0, Math.Max(0, compactChinese.Length - 1))
+            .Select(index => compactChinese.Substring(index, 2))
+            .Where(value => value is not (
+                "必须" or "需要" or "要求" or "包含" or "说明" or "提供" or "展示" or
+                "明确" or "进行" or "相关" or "内容" or "以及" or "通过" or "应当"))
+            .Distinct(StringComparer.OrdinalIgnoreCase);
+        terms.AddRange(chineseTerms);
+        return terms
             .Distinct(StringComparer.OrdinalIgnoreCase)
-            .Take(10)
-            .ToArray();
-        if (terms.Length > 0) return terms;
-        var compact = new string(text.Where(character => character is >= '\u3400' and <= '\u9fff').ToArray());
-        return Enumerable.Range(0, Math.Max(0, compact.Length - 1))
-            .Select(index => compact.Substring(index, 2))
-            .Distinct()
-            .Take(10)
+            .Take(20)
             .ToArray();
     }
+
+    private static string Compact(string value) =>
+        new(value.Where(character => char.IsLetterOrDigit(character)).ToArray());
 
     private static bool SourceIdExists(string citationId, IReadOnlyList<ProofSource> sources)
     {
@@ -181,4 +297,7 @@ internal static partial class DocumentCiService
 
     [GeneratedRegex(@"可能|预计|初步|推测|有望|大约|约为")]
     private static partial Regex ReviewSignalRegex();
+
+    [GeneratedRegex(@"^R[-_]?\d+$", RegexOptions.IgnoreCase)]
+    private static partial Regex RequirementIdRegex();
 }

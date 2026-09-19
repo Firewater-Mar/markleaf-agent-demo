@@ -69,6 +69,38 @@ import {
 
 const editorElement = document.querySelector<HTMLElement>('#editor')
 
+function replaceMarkdownSection(targetHeading: string, markdown: string): { success: boolean; outcome?: string; error?: string } {
+  if (!editor || sourceMode) {
+    return { success: false, error: '请先切换到可视化编辑模式' }
+  }
+  const target = targetHeading.trim().toLocaleLowerCase()
+  if (!target || !markdown.trim()) return { success: false, error: '缺少目标章节或替换内容' }
+
+  let from = -1
+  let to = editor.state.doc.content.size
+  let level = 7
+  editor.state.doc.descendants((node, position) => {
+    if (node.type.name !== 'heading') return true
+    const headingLevel = Number(node.attrs.level ?? 6)
+    if (from < 0 && node.textContent.trim().toLocaleLowerCase().includes(target)) {
+      from = position
+      level = headingLevel
+      return true
+    }
+    if (from >= 0 && headingLevel <= level) {
+      to = position
+      return false
+    }
+    return true
+  })
+  if (from < 0 || to <= from) return { success: false, error: `没有找到章节：${targetHeading}` }
+
+  const selected = editor.commands.setTextSelection({ from, to })
+  if (!selected) return { success: false, error: '无法选择目标章节' }
+  const result = pasteMarkdownTextWithResult(editor, markdown)
+  return { success: result.success, outcome: result.outcome, error: result.error }
+}
+
 if (!editorElement) {
   throw new Error('Editor mount element was not found.')
 }
@@ -779,12 +811,12 @@ const formatMenu = document.createElement('div')
 formatMenu.id = 'format-menu'
 formatMenu.className = 'format-menu'
 formatMenu.hidden = true
-const formatButtons: Array<{ command: string; glyph: string; label: string }> = [
-  { command: 'toggleBold', glyph: '', label: 'Bold' },
-  { command: 'toggleItalic', glyph: '', label: 'Italic' },
-  { command: 'toggleUnderline', glyph: '', label: 'Underline' },
-  { command: 'toggleStrike', glyph: '\uEDE0', label: 'Strikethrough' },
-  { command: 'toggleHighlight', glyph: '\uE7E6', label: 'Text highlight' },
+const formatButtons: Array<{ command: string; icon: string; label: string }> = [
+  { command: 'toggleBold', icon: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4h5a4 4 0 0 1 0 8H7V4Zm0 8h6a4 4 0 0 1 0 8H7v-8Z"/></svg>', label: 'Bold' },
+  { command: 'toggleItalic', icon: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 4h8M6 20h8M14 4 10 20"/></svg>', label: 'Italic' },
+  { command: 'toggleUnderline', icon: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4v6a5 5 0 0 0 10 0V4M5 20h14"/></svg>', label: 'Underline' },
+  { command: 'toggleStrike', icon: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 8c0-2.2 2.1-4 5-4 2.2 0 4 .8 5 2M8 16c1 2 2.7 3 5 3 3 0 5-1.6 5-4 0-1.5-.8-2.5-2.4-3M4 12h16"/></svg>', label: 'Strikethrough' },
+  { command: 'toggleHighlight', icon: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 15 8-8 3 3-8 8H7v-3ZM5 20h14"/><path class="icon-fill" d="M5 20h14"/></svg>', label: 'Text highlight' },
 ]
 const formatButtonElements: HTMLButtonElement[] = []
 
@@ -821,7 +853,7 @@ for (const entry of formatButtons) {
   button.type = 'button'
   button.className = 'format-menu-button'
   button.dataset.command = entry.command
-  button.textContent = entry.glyph
+  button.innerHTML = entry.icon
   button.setAttribute('aria-label', entry.label)
   attachFormatCommand(button, entry.command)
   formatButtonElements.push(button)
@@ -856,7 +888,7 @@ const formatPainterButton = document.createElement('button')
 formatPainterButton.type = 'button'
 formatPainterButton.className = 'format-menu-button'
 formatPainterButton.dataset.command = 'formatPainter'
-formatPainterButton.textContent = '\uEC34'
+formatPainterButton.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h11v5H5V4Zm5.5 5v3H14v8h-3.5v-8H7V9"/></svg>'
 formatPainterButton.setAttribute('aria-label', 'Format painter')
 formatPainterButton.title = 'Format painter'
 attachFormatCommand(formatPainterButton, 'formatPainter')
@@ -866,7 +898,7 @@ const clearFormatButton = document.createElement('button')
 clearFormatButton.type = 'button'
 clearFormatButton.className = 'format-menu-button'
 clearFormatButton.dataset.command = 'clearFormat'
-clearFormatButton.textContent = '\uE75C'
+clearFormatButton.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 17 7-11 7 11M8 13h8M15 20l5-5M17 15l3 3"/></svg>'
 clearFormatButton.setAttribute('aria-label', 'Clear formatting')
 clearFormatButton.title = 'Clear formatting'
 attachFormatCommand(clearFormatButton, 'clearFormat')
@@ -1468,7 +1500,22 @@ async function handleMessage(value: unknown): Promise<void> {
         }
         let commandOutcome: string | undefined
         let commandError: string | undefined
-        const success = sourceMode
+        let sectionEditResult: { success: boolean; outcome?: string; error?: string } | undefined
+        if (payload.command === 'replaceMarkdownSection' && commandText !== undefined) {
+          try {
+            const value = JSON.parse(commandText) as { target?: unknown; markdown?: unknown }
+            sectionEditResult = replaceMarkdownSection(
+              typeof value.target === 'string' ? value.target : '',
+              typeof value.markdown === 'string' ? value.markdown : '',
+            )
+            commandOutcome = sectionEditResult.outcome
+            commandError = sectionEditResult.error
+          } catch {
+            sectionEditResult = { success: false, error: '章节修改数据无效' }
+            commandError = sectionEditResult.error
+          }
+        }
+        const success = sectionEditResult?.success ?? (sourceMode
           ? payload.command === 'undo'
             ? sourceEditor?.undo() ?? false
             : payload.command === 'redo'
@@ -1510,7 +1557,7 @@ async function handleMessage(value: unknown): Promise<void> {
                 payload.command,
                 commandText,
                 coordinates,
-              )
+              ))
         if (message.requestId) {
           send('commandResult', { success, outcome: commandOutcome, error: commandError }, message.requestId)
         }

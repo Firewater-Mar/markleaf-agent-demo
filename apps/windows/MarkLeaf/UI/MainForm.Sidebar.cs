@@ -15,8 +15,9 @@ internal sealed partial class MainForm
     private CancellationTokenSource? _searchCancellation;
     private string? _pendingWorkspaceSearchQuery;
 
-    private LiveSplitContainer CreateSidebarSplit(int sidebarWidth, int outlineWidth)
+    private LiveSplitContainer CreateSidebarSplit(int sidebarWidth, int agentWidth, int outlineWidth)
     {
+        sidebarWidth = this.ScaleForDpi(260);
         _sidebarExpandedWidth = sidebarWidth;
         var split = new LiveSplitContainer
         {
@@ -30,14 +31,14 @@ internal sealed partial class MainForm
         };
         _sidebarMinimumWidth = split.Panel1MinSize;
         split.Panel1.Controls.Add(CreateSidebarPanel());
-        split.Panel2.Controls.Add(CreateAgentSplit(CreateOutlineSplit(outlineWidth)));
+        split.Panel2.Controls.Add(CreateAgentSplit(CreateOutlineSplit(outlineWidth), agentWidth));
         split.HandleCreated += (_, _) => SetSplitterDistanceSafely(split, sidebarWidth, FixedPanel.Panel1);
         split.LiveSplitterMoved += OnSidebarSplitterMoved;
         split.LiveSplitterDragCompleted += OnSidebarSplitterMoved;
         return split;
     }
 
-    private Control CreateAgentSplit(Control editorAndOutline)
+    private Control CreateAgentSplit(Control editorAndOutline, int agentWidth)
     {
         var split = new LiveSplitContainer
         {
@@ -45,7 +46,9 @@ internal sealed partial class MainForm
             Size = new Size(1100, 740),
             Orientation = Orientation.Vertical,
             FixedPanel = FixedPanel.Panel2,
-            SplitterWidth = 1,
+            // Keep the visible divider subtle while giving the pointer a
+            // forgiving drag target on high-DPI displays.
+            SplitterWidth = this.ScaleForDpi(9),
             Panel1MinSize = this.ScaleForDpi(420),
             Panel2MinSize = this.ScaleForDpi(320),
         };
@@ -54,12 +57,12 @@ internal sealed partial class MainForm
         split.HandleCreated += (_, _) => split.BeginInvoke(new Action(() =>
             SetSplitterDistanceSafely(
                 split,
-                this.ScaleForDpi(430),
+                agentWidth,
                 FixedPanel.Panel2)));
         Shown += (_, _) => BeginInvoke(new Action(() =>
             SetSplitterDistanceSafely(
                 split,
-                this.ScaleForDpi(430),
+                agentWidth,
                 FixedPanel.Panel2)));
         return _agentSplit = split;
     }
@@ -90,6 +93,7 @@ internal sealed partial class MainForm
         _editorAreaPanel.DragEnter += OnEmptyEditorAreaDragEnter;
         _editorAreaPanel.DragDrop += OnEmptyEditorAreaDragDrop;
         _editorAreaPanel.Controls.Add(_editorPanel);
+        _editorAreaPanel.Controls.Add(_editorFormatToolbar);
         _editorAreaPanel.Controls.Add(_documentTabBar);
         split.Panel1.Controls.Add(_editorAreaPanel);
         split.Panel2.Controls.Add(CreateDetachedOutlinePanel());
@@ -130,7 +134,7 @@ internal sealed partial class MainForm
             Margin = Padding.Empty,
             Padding = Padding.Empty,
             ColumnCount = 1,
-            RowCount = 3,
+            RowCount = 4,
         };
         _detachedOutlineLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
         _detachedOutlineLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, _detachedOutlineTabBar.Height));
@@ -173,13 +177,24 @@ internal sealed partial class MainForm
         };
         _sidebarPanel = panel;
 
-        _sidebarTabBar.TabChanged += (_, index) => ShowSidebarView(outline: index == 1);
+        _sidebarTabBar.TabChanged += (_, index) =>
+        {
+            if (index == 2)
+            {
+                _agentSplit.Panel2Collapsed = false;
+                _agentPanel.SwitchPage("check");
+                return;
+            }
+            ShowSidebarView(outline: index == 1);
+        };
         _sidebarTabBar.TabReclicked += (_, index) =>
         {
             if (index == 0)
                 ToggleWorkspaceView();
             else if (index == 1)
                 DetachOutlineSidebar();
+            else if (index == 2)
+                _agentPanel.SwitchPage("check");
         };
         _sidebarTabBar.NewMarkdownClicked += OnSidebarNewMarkdownClicked;
         _sidebarTabBar.DetachClicked += (_, _) => DetachOutlineSidebar();
@@ -227,12 +242,14 @@ internal sealed partial class MainForm
         };
         _sidebarLayout = layout;
         layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
-        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, _sidebarTabBar.Height));
+        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, this.ScaleForDpi(72)));
         layout.RowStyles.Add(new RowStyle(SizeType.Absolute, _sidebarSearchBar.Height));
+        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, _sidebarTabBar.Height));
         layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
-        layout.Controls.Add(_sidebarTabBar, 0, 0);
+        layout.Controls.Add(_projectSidebarHeader, 0, 0);
         layout.Controls.Add(_sidebarSearchBar, 0, 1);
-        layout.Controls.Add(contentHost, 0, 2);
+        layout.Controls.Add(_sidebarTabBar, 0, 2);
+        layout.Controls.Add(contentHost, 0, 3);
         panel.Controls.Add(layout);
 
         ShowSidebarView(outline: _settings.MainWindow.SidebarActiveOutline);

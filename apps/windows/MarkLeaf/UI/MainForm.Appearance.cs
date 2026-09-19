@@ -459,6 +459,14 @@ internal sealed partial class MainForm
 
     private void ApplyMenuPresentation()
     {
+        if (UseWorkspaceShellChrome)
+        {
+            _documentTabBar.SetFullScreenMenuVisible(false);
+            _documentTabBar.SetDisplaySuppressed(true);
+            if (IsHandleCreated && !IsDisposed) _menuService.Detach();
+            MainMenuStrip = null;
+            return;
+        }
         var showTabBarMenu = !_focusMode && UseTabBarMenu;
         _documentTabBar.SetMenuTextOptions(
             _settings.Appearance.ShowMenuKeyboardShortcuts,
@@ -493,7 +501,9 @@ internal sealed partial class MainForm
             ApplyMenuPresentation();
             WindowState = FormWindowState.Normal;
             FormBorderStyle = FormBorderStyle.None;
-            Bounds = Screen.FromControl(this).Bounds;
+            // Keep the Windows taskbar available even in the editor's focus
+            // mode so switching applications never requires leaving MarkLeaf.
+            Bounds = Screen.FromControl(this).WorkingArea;
             FocusEditorAfterWindowModeChange();
             return;
         }
@@ -545,7 +555,7 @@ internal sealed partial class MainForm
         {
             if (_statusStrip is not null) _statusStrip.Visible = true;
         }
-        _documentTabBar.SetDisplaySuppressed(false);
+        _documentTabBar.SetDisplaySuppressed(UseWorkspaceShellChrome);
         // With the tab-bar menu style, the tab bar also hosts the menu when
         // there are no documents. A separate top menu must remain visible in
         // that state, so do not restore the stale pre-focus Visible value.

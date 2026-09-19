@@ -49,10 +49,11 @@ internal sealed class WorkspaceService
         }
     }
 
-    private static bool IsSupportedDocument(string path)
+    public static bool IsEditorDocument(string path)
     {
         var extension = Path.GetExtension(path);
         return string.Equals(extension, ".md", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(extension, ".markdown", StringComparison.OrdinalIgnoreCase)
             || string.Equals(extension, ".txt", StringComparison.OrdinalIgnoreCase);
     }
 
@@ -139,7 +140,7 @@ internal sealed class WorkspaceService
                         }
 
                         var extension = Path.GetExtension(path);
-                        if (!IsSupportedDocument(path))
+                        if (!IsEditorDocument(path))
                         {
                             continue;
                         }
@@ -311,11 +312,6 @@ internal sealed class WorkspaceService
                 }
 
                 var isDirectory = (attributes & FileAttributes.Directory) != 0;
-                if (!isDirectory && !IsSupportedDocument(path))
-                {
-                    continue;
-                }
-
                 entries.Add(new WorkspaceEntry(
                     Path.GetFileName(path),
                     Path.GetFullPath(path),
@@ -374,7 +370,7 @@ internal sealed class WorkspaceService
                         }
 
                         var extension = Path.GetExtension(path);
-                        if (!IsSupportedDocument(path))
+                        if (!IsEditorDocument(path))
                         {
                             continue;
                         }

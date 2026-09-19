@@ -67,6 +67,11 @@ internal sealed partial class MainForm
             WorkspaceWidth = WindowPlacementCalculator.ToLogicalPixels(
                 _sidebarExpandedWidth,
                 _effectiveDpi),
+            AgentWidth = WindowPlacementCalculator.ToLogicalPixels(
+                _agentSplit.Panel2Collapsed
+                    ? (int)Math.Round(430 * _effectiveDpi / 96d)
+                    : _agentSplit.ClientSize.Width - _agentSplit.SplitterDistance - _agentSplit.SplitterWidth,
+                _effectiveDpi),
             OutlineWidth = WindowPlacementCalculator.ToLogicalPixels(
                 _detachedOutlineWidth,
                 _effectiveDpi),

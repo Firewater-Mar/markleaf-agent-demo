@@ -6,6 +6,7 @@ using MarkLeaf.Documents;
 using MarkLeaf.Editor;
 using MarkLeaf.Native;
 using MarkLeaf.Services;
+using MarkLeaf.Services.AI;
 using MarkLeaf.Services.Logging;
 using MarkLeaf.Services.Recovery;
 using MarkLeaf.Services.Settings;
@@ -168,7 +169,8 @@ internal sealed partial class MainForm : Form
     private string _markdownStyle = "serif";
     private string _colorTheme = "white";
     private int _zoomPercent = 100;
-    private string _aiSessionApiKey = Environment.GetEnvironmentVariable("MARKLEAF_AI_API_KEY") ?? string.Empty;
+    private readonly AiCredentialStore _aiCredentialStore;
+    private string _aiSessionApiKey = string.Empty;
 
     public MainForm(
         LaunchOptions options,
@@ -183,10 +185,15 @@ internal sealed partial class MainForm : Form
         SuspendLayout();
         _options = options;
         _paths = paths;
+        _aiCredentialStore = new AiCredentialStore(paths.DataDirectory);
+        _aiSessionApiKey = Environment.GetEnvironmentVariable("MARKLEAF_AI_API_KEY")
+            ?? _aiCredentialStore.Load();
         _settings = settings;
-        _markdownStyle = StyleService.TryGetStyle(settings.MarkdownStyle) is not null
-            ? settings.MarkdownStyle
-            : StyleService.DefaultStyleId;
+        _markdownStyle = UseWorkspaceShellChrome && settings.MarkdownStyle == "sans-serif"
+            ? "serif"
+            : StyleService.TryGetStyle(settings.MarkdownStyle) is not null
+                ? settings.MarkdownStyle
+                : StyleService.DefaultStyleId;
         ColorThemeService.DefaultLightThemeId = settings.Appearance.DefaultLightThemeId;
         ColorThemeService.DefaultDarkThemeId = settings.Appearance.DefaultDarkThemeId;
         _colorTheme = ColorThemeService.TryGetTheme(settings.ColorTheme) is not null
@@ -271,6 +278,12 @@ internal sealed partial class MainForm : Form
 
         Text = "MarkLeaf Agent";
         ShowIcon = true;
+        if (UseWorkspaceShellChrome)
+        {
+            FormBorderStyle = FormBorderStyle.None;
+            Padding = new Padding(1);
+            BackColor = Color.FromArgb(211, 220, 216);
+        }
         var iconPath = Path.Combine(AppContext.BaseDirectory, "Resources", "App", "App.ico");
         if (File.Exists(iconPath))
         {
@@ -279,7 +292,7 @@ internal sealed partial class MainForm : Form
         }
         StartPosition = FormStartPosition.Manual;
         AutoScaleMode = AutoScaleMode.Dpi;
-        MinimumSize = new Size(1160, 680);
+        MinimumSize = new Size(1280, 720);
         _expandedWindowMinimumSize = MinimumSize;
         Font = new Font("Segoe UI", 9F, FontStyle.Regular);
 
@@ -326,20 +339,30 @@ internal sealed partial class MainForm : Form
             async () => _editorHost?.IsDocumentLoaded == true
                 ? (await _editorHost.RequestSnapshotAsync()).Markdown
                 : string.Empty,
-            markdown =>
+            (target, markdown) =>
             {
                 if (_editorHost?.IsDocumentLoaded != true) return;
-                _editorHost.ExecuteCommand("pasteMarkdown", $"\n\n{markdown.Trim()}\n");
-                SetStatus("Agent 建议已插入，请复核后保存。");
+                _editorHost.ExecuteCommand(
+                    "replaceMarkdownSection",
+                    JsonSerializer.Serialize(new { target, markdown }));
+                SetStatus($"已替换“{target}”章节，可使用撤销恢复。");
             },
+            path => OpenDocumentPathAsync(path),
+            (path, line) => RevealAgentSourceAsync(path, line),
+            ScheduleAgentExportAsync,
             _settings.Ai,
             _aiSessionApiKey,
-            apiKey => _aiSessionApiKey = apiKey,
+            apiKey =>
+            {
+                _aiSessionApiKey = apiKey;
+                _aiCredentialStore.Save(apiKey);
+            },
             SaveSettings);
+        ConfigureWorkspaceChrome();
 
-        _sidebarSplit = CreateSidebarSplit(placement.WorkspaceWidth, placement.OutlineWidth);
+        _sidebarSplit = CreateSidebarSplit(placement.WorkspaceWidth, placement.AgentWidth, placement.OutlineWidth);
 
-        Controls.Add(_sidebarSplit);
+        Controls.Add(CreateWorkspaceShell(_sidebarSplit));
         _statusStrip = CreateStatusBar();
         _outlineSplit.Panel1.Controls.Add(_statusStrip);
         // Sidebar visibility is a window preference, independent of whether a
@@ -362,7 +385,7 @@ internal sealed partial class MainForm : Form
         ApplySidebarColors();
         ApplyWindowDarkMode(ColorThemeService.IsActiveThemeDark());
 
-        Shown += (_, _) => _ = OnMainFormShownAsync(placement.IsMaximized);
+        Shown += (_, _) => _ = OnMainFormShownAsync(UseWorkspaceShellChrome || placement.IsMaximized);
         Activated += (_, _) => _editorHost?.SetWindowActive(true);
         Deactivate += (_, _) =>
         {
@@ -407,6 +430,9 @@ internal sealed partial class MainForm : Form
 
     protected override void WndProc(ref Message message)
     {
+        if (HandleWorkspaceChromeHitTest(ref message))
+            return;
+
         const int wmCommand = 0x0111;
         const int wmInitMenu = 0x0116;
         const int wmInitMenuPopup = 0x0117;
@@ -535,17 +561,11 @@ internal sealed partial class MainForm : Form
         startupTasks.Add(InitializeStartupContentAsync());
         await Task.WhenAll(startupTasks);
         await _agentPanel.RefreshContextAsync();
-        SetSplitterDistanceSafely(
-            _agentSplit,
-            this.ScaleForDpi(430),
-            FixedPanel.Panel2);
         WriteWindowReport();
         _logger.Info($"Startup: editor and initial content ready after {startupTimer.ElapsedMilliseconds} ms.");
 
-        if (_settings.General.AutoCheckForUpdates)
-        {
-            _ = CheckForUpdatesAsync(silent: true);
-        }
+        // MarkLeaf Agent is a separate product fork. Do not query or install
+        // upstream MarkLeaf releases until an Agent-specific channel exists.
 
         if (_options.DocumentStatePath is not null || _options.IsolatedFileWindow)
         {

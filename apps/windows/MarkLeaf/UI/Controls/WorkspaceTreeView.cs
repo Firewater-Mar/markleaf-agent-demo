@@ -873,9 +873,27 @@ internal sealed class WorkspaceTreeView : Control
                 : SystemIconProvider.FolderCollapsedIcon;
         }
         var ext = Path.GetExtension(node.Entry.Name);
-        return string.Equals(ext, ".txt", StringComparison.OrdinalIgnoreCase)
-            ? SystemIconProvider.TextFileIcon
-            : SystemIconProvider.MarkdownFileIcon;
+        if (ext.Equals(".md", StringComparison.OrdinalIgnoreCase)
+            || ext.Equals(".markdown", StringComparison.OrdinalIgnoreCase))
+            return SystemIconProvider.MarkdownFileIcon;
+        if (ext.Equals(".txt", StringComparison.OrdinalIgnoreCase)
+            || ext.Equals(".csv", StringComparison.OrdinalIgnoreCase)
+            || ext.Equals(".tsv", StringComparison.OrdinalIgnoreCase)
+            || ext.Equals(".json", StringComparison.OrdinalIgnoreCase)
+            || ext.Equals(".docx", StringComparison.OrdinalIgnoreCase))
+            return SystemIconProvider.TextFileIcon;
+        if (ext.Equals(".pdf", StringComparison.OrdinalIgnoreCase))
+            return SystemIconProvider.PdfIcon;
+        if (ext.Equals(".png", StringComparison.OrdinalIgnoreCase)
+            || ext.Equals(".jpg", StringComparison.OrdinalIgnoreCase)
+            || ext.Equals(".jpeg", StringComparison.OrdinalIgnoreCase)
+            || ext.Equals(".webp", StringComparison.OrdinalIgnoreCase)
+            || ext.Equals(".gif", StringComparison.OrdinalIgnoreCase))
+            return SystemIconProvider.ImageIcon;
+        if (ext.Equals(".html", StringComparison.OrdinalIgnoreCase)
+            || ext.Equals(".htm", StringComparison.OrdinalIgnoreCase))
+            return SystemIconProvider.HtmlIcon;
+        return SystemIconProvider.GenericFileIcon;
     }
 
     private void DrawExpander(Graphics graphics, Rectangle bounds, bool expanded)

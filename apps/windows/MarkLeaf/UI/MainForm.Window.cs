@@ -69,7 +69,13 @@ internal sealed partial class MainForm
         FixedPanel fixedPanel)
     {
         var minimum = split.Panel1MinSize;
-        var maximum = Math.Max(minimum, split.Width - split.Panel2MinSize - split.SplitterWidth);
+        var maximum = split.Width - split.Panel2MinSize - split.SplitterWidth;
+        // During handle creation a docked split container can briefly report a
+        // width smaller than the sum of its DPI-scaled panel minimums. There is
+        // no legal splitter value in that transient state; the shown/layout
+        // callback will apply the requested distance once the real width exists.
+        if (maximum < minimum)
+            return;
         var distance = fixedPanel == FixedPanel.Panel1
             ? desiredPanelWidth
             : split.Width - desiredPanelWidth - split.SplitterWidth;

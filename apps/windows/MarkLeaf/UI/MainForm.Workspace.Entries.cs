@@ -112,9 +112,25 @@ internal sealed partial class MainForm
             return;
         }
 
-        if (!_documentOperationInProgress)
+        if (WorkspaceService.IsEditorDocument(entry.FullPath))
         {
-            await OpenDocumentPathAsync(entry.FullPath);
+            if (!_documentOperationInProgress)
+            {
+                await OpenDocumentPathAsync(entry.FullPath);
+            }
+            return;
+        }
+
+        try
+        {
+            Process.Start(new ProcessStartInfo(entry.FullPath)
+            {
+                UseShellExecute = true,
+            });
+        }
+        catch (Exception exception) when (exception is InvalidOperationException or System.ComponentModel.Win32Exception)
+        {
+            ShowWorkspaceOperationError(exception);
         }
     }
 

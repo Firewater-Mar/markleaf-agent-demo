@@ -32,6 +32,6 @@ export function bindDocumentLinks(mount: HTMLElement, getEditor: () => Editor, a
       else if (isAllowedLink(href)) actions.openLink(href)
     }
   }
-  mount.addEventListener('click', activate, { signal: events.signal })
+  mount.addEventListener('mousedown', activate, { signal: events.signal })
   return () => events.abort()
 }

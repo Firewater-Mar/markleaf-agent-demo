@@ -19,7 +19,10 @@ internal static class PortableCitationService
             var marker = $"[{source.Id}]";
             if (!result.Contains(marker, StringComparison.Ordinal)) continue;
             result = result.Replace(marker, $"[^{token}]", StringComparison.Ordinal);
-            footnotes.Add($"[^{token}]: {source.DisplayPath}，第 {source.StartLine}-{source.EndLine} 行。由 MarkLeaf Agent 在本次任务中检索。");
+            var locator = string.IsNullOrWhiteSpace(source.Locator)
+                ? $"第 {source.StartLine}-{source.EndLine} 行"
+                : source.Locator;
+            footnotes.Add($"[^{token}]: {source.DisplayPath}，{locator}。由 MarkLeaf Agent 在本次任务中检索。");
         }
         return footnotes.Count == 0
             ? result

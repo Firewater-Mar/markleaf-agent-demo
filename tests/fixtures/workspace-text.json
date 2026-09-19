@@ -19,7 +19,7 @@
     },
     {
       "name": "legacy.markdown",
-      "included": false
+      "included": true
     },
     {
       "name": "manual.pdf",

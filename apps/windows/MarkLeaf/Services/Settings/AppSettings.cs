@@ -113,6 +113,12 @@ public sealed class AppSettings
 
 public sealed class AiSettings
 {
+    /// <summary>Friendly label shown in the Agent model picker.</summary>
+    public string ProviderName { get; set; } = "Ollama";
+
+    /// <summary>ollama or openai-compatible.</summary>
+    public string ProviderType { get; set; } = "ollama";
+
     /// <summary>
     /// OpenAI-compatible API base URL. Ollama exposes this protocol at /v1.
     /// </summary>
@@ -210,7 +216,7 @@ public sealed class GeneralSettings
 
     public string UiLanguage { get; set; } = "";
 
-    public bool AutoCheckForUpdates { get; set; } = true;
+    public bool AutoCheckForUpdates { get; set; } = false;
 }
 
 public sealed class AppearanceSettings
@@ -393,6 +399,8 @@ public sealed class WindowSettings
     public bool IsMaximized { get; set; }
 
     public int WorkspaceWidth { get; set; } = 220;
+
+    public int AgentWidth { get; set; } = 430;
 
     public int OutlineWidth { get; set; } = 220;
 

@@ -32,7 +32,13 @@ internal sealed class ProofProjectStore
 
         try
         {
-            await using var stream = File.OpenRead(path);
+            await using var stream = new FileStream(
+                path,
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.ReadWrite | FileShare.Delete,
+                16 * 1024,
+                FileOptions.Asynchronous | FileOptions.SequentialScan);
             var project = await JsonSerializer.DeserializeAsync<ProofProject>(stream, JsonOptions, cancellationToken);
             return Normalize(project ?? new ProofProject(), workspaceRoot);
         }
@@ -47,21 +53,45 @@ internal sealed class ProofProjectStore
         var directory = GetProjectDirectory(workspaceRoot);
         Directory.CreateDirectory(directory);
         var path = GetProjectPath(workspaceRoot);
-        var temporaryPath = path + ".tmp";
+        var temporaryPath = path + $".{Environment.ProcessId}.{Guid.NewGuid():N}.tmp";
         project.UpdatedAtUtc = DateTime.UtcNow;
 
-        await using (var stream = new FileStream(
-            temporaryPath,
-            FileMode.Create,
-            FileAccess.Write,
-            FileShare.None,
-            16 * 1024,
-            FileOptions.Asynchronous))
+        try
         {
-            await JsonSerializer.SerializeAsync(stream, project, JsonOptions, cancellationToken);
+            await using (var stream = new FileStream(
+                temporaryPath,
+                FileMode.CreateNew,
+                FileAccess.Write,
+                FileShare.None,
+                16 * 1024,
+                FileOptions.Asynchronous | FileOptions.WriteThrough))
+            {
+                await JsonSerializer.SerializeAsync(stream, project, JsonOptions, cancellationToken);
+                await stream.FlushAsync(cancellationToken);
+                stream.Flush(flushToDisk: true);
+            }
+            await MoveIntoPlaceAsync(temporaryPath, path, cancellationToken);
         }
+        finally
+        {
+            if (File.Exists(temporaryPath)) File.Delete(temporaryPath);
+        }
+    }
 
-        File.Move(temporaryPath, path, overwrite: true);
+    private static async Task MoveIntoPlaceAsync(string temporaryPath, string path, CancellationToken cancellationToken)
+    {
+        for (var attempt = 0; ; attempt++)
+        {
+            try
+            {
+                File.Move(temporaryPath, path, overwrite: true);
+                return;
+            }
+            catch (IOException) when (attempt < 2)
+            {
+                await Task.Delay(40 * (attempt + 1), cancellationToken);
+            }
+        }
     }
 
     private static ProofProject Normalize(ProofProject project, string workspaceRoot)
@@ -80,6 +110,12 @@ internal sealed class ProofProjectStore
             requirement.Title = requirement.Title?.Trim() ?? string.Empty;
             requirement.Description ??= string.Empty;
             requirement.MatchedHeading ??= string.Empty;
+            requirement.CoverageState = requirement.CoverageState is
+                "quick-covered" or "quick-missing" or "covered" or "partial" or "missing"
+                ? requirement.CoverageState
+                : "unchecked";
+            requirement.EvidenceText ??= string.Empty;
+            requirement.CoverageReason ??= string.Empty;
         }
         foreach (var source in project.Sources)
         {

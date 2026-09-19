@@ -8,7 +8,6 @@ using MarkLeaf.Documents;
 using MarkLeaf.Editor;
 using MarkLeaf.Services;
 using MarkLeaf.Services.ExternalLinks;
-using MarkLeaf.Services.Updates;
 using MarkLeaf.UI.Dialogs;
 
 namespace MarkLeaf.UI;
@@ -639,51 +638,12 @@ internal sealed partial class MainForm
         _editorHost.ClearBlockHighlight();
     }
 
-    private async Task CheckForUpdatesAsync(bool silent = false)
+    private Task CheckForUpdatesAsync(bool silent = false)
     {
-        try
-        {
-            using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(45));
-            var currentVersion = typeof(MainForm).Assembly.GetName().Version ?? new Version(0, 0, 0);
-            var updateService = new GitHubUpdateService();
-            var release = await updateService.FindUpdateAsync(currentVersion, cancellation.Token);
-            if (release is null)
-            {
-                if (!silent)
-                {
-                    ShowMessage(this, Loc.Get("update.latest"), "MarkLeaf", MessageBoxButtons.OK, MessageBoxIcon.Information);
-                }
-                return;
-            }
-
-            var prompt = Loc.Format("update.available", release.VersionText, release.BuildNumber);
-            if (ShowMessage(this, prompt, "MarkLeaf", MessageBoxButtons.YesNo, MessageBoxIcon.Information) != DialogResult.Yes)
-            {
-                return;
-            }
-
-            SetStatus(Loc.Get("update.downloading"));
-            var installerPath = await updateService.DownloadInstallerAsync(release, cancellation.Token);
-            Process.Start(new ProcessStartInfo(installerPath) { UseShellExecute = true });
-            _closeApproved = true;
-            Close();
-        }
-        catch (OperationCanceledException)
-        {
-            if (!silent)
-            {
-                ShowMessage(this, Loc.Get("update.failed"), "MarkLeaf", MessageBoxButtons.OK, MessageBoxIcon.Error);
-            }
-        }
-        catch (Exception exception)
-        {
-            _logger.Error("Could not check for application updates.", exception);
-            if (!silent)
-            {
-                ShowMessage(this, Loc.Get("update.failed") + "\r\n\r\n" + exception.Message,
-                    "MarkLeaf", MessageBoxButtons.OK, MessageBoxIcon.Error);
-            }
-        }
+        if (!silent)
+            ShowMessage(this, "MarkLeaf Agent 暂未配置独立更新通道。正式版本发布后会在这里提供安全更新。",
+                "MarkLeaf Agent", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        return Task.CompletedTask;
     }
 
     private void OnMermaidEditRequested(object? sender, EventArgs e)

@@ -14,7 +14,7 @@ internal sealed partial class MainForm
     {
         var localesDir = Path.Combine(AppContext.BaseDirectory, "Resources", "Locales");
         Loc.Initialize(localesDir, culture);
-        _menuService.Attach(Handle);
+        ApplyMenuPresentation();
         OnEditorStateChanged();
         RefreshPersistentStatusBar();
         UpdateDocumentChrome();

@@ -37,6 +37,7 @@ public static class WindowPlacementCalculator
             Dpi = safeTargetDpi,
             IsMaximized = saved.IsMaximized,
             WorkspaceWidth = ScaleDip(workspaceWidthDip, safeTargetDpi),
+            AgentWidth = Math.Max(ScaleDip(320, safeTargetDpi), ScaleDip(saved.AgentWidth, safeTargetDpi)),
             OutlineWidth = Math.Max(ScaleDip(160, safeTargetDpi), ScaleDip(saved.OutlineWidth, safeTargetDpi)),
             OutlineDetached = saved.OutlineDetached,
             SidebarCollapsed = saved.SidebarCollapsed,

@@ -27,8 +27,8 @@ internal sealed class SidebarTabBar : Control
     private Font _font = new("Microsoft YaHei", 9F, FontStyle.Bold, GraphicsUnit.Point);
     private Font _selectedFont = new("Microsoft YaHei", 9F, FontStyle.Bold, GraphicsUnit.Point);
     private Font _iconFont = new(SystemIconProvider.IconFontName, 10F, FontStyle.Regular, GraphicsUnit.Point);
-    private readonly Rectangle[] _tabBounds = new Rectangle[2];
-    private readonly Rectangle[] _tabVisualBounds = new Rectangle[2];
+    private readonly Rectangle[] _tabBounds = new Rectangle[3];
+    private readonly Rectangle[] _tabVisualBounds = new Rectangle[3];
     private readonly System.Windows.Forms.Timer _selectionAnimationTimer = new() { Interval = 15 };
     private RectangleF _selectionBounds;
     private RectangleF _selectionAnimationStartBounds;
@@ -44,7 +44,7 @@ internal sealed class SidebarTabBar : Control
 
     public SidebarTabBar()
     {
-        _tabs = [Loc.Get("sidebar.workspace"), Loc.Get("sidebar.outline")];
+        _tabs = [Loc.Get("sidebar.workspace"), Loc.Get("sidebar.outline"), "要求"];
         SetStyle(
             ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint
             | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw | ControlStyles.Selectable,
@@ -205,9 +205,12 @@ internal sealed class SidebarTabBar : Control
             topPad,
             totalTabsWidth,
             ClientSize.Height - topPad - bottomPad);
-        using (var groupBrush = new SolidBrush(
-            _mode == SidebarTabBarMode.OutlineOnly ? BackColor : _bgHover))
+        if (_mode != SidebarTabBarMode.Combined)
+        {
+            using var groupBrush = new SolidBrush(
+                _mode == SidebarTabBarMode.OutlineOnly ? BackColor : _bgHover);
             SidebarGdi.FillRoundedRect(g, groupBounds, radius, groupBrush);
+        }
 
         Array.Clear(_tabBounds);
         Array.Clear(_tabVisualBounds);
@@ -221,12 +224,17 @@ internal sealed class SidebarTabBar : Control
             x += tabWidth + gap;
         }
 
-        DrawSelectionSlider(g, radius);
+        if (_mode == SidebarTabBarMode.Combined)
+            DrawSelectionUnderline(g);
+        else
+            DrawSelectionSlider(g, radius);
 
         for (var i = 0; i < _tabs.Length; i++)
         {
             var isSelected = _mode != SidebarTabBarMode.OutlineOnly && i == _selectedIndex;
-            var textColor = isSelected ? _textSelected : _textPrimary;
+            var textColor = isSelected
+                ? _mode == SidebarTabBarMode.Combined ? Color.FromArgb(17, 121, 91) : _textSelected
+                : _textPrimary;
 
             TextRenderer.DrawText(
                 g,
@@ -237,6 +245,29 @@ internal sealed class SidebarTabBar : Control
                 TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter
                     | TextFormatFlags.NoPrefix | TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis);
         }
+    }
+
+    private void DrawSelectionUnderline(Graphics graphics)
+    {
+        if (_tabs.Length == 0) return;
+        var targetBounds = (RectangleF)_tabVisualBounds[_selectedIndex];
+        if (!_selectionBoundsInitialized || !_selectionAnimationActive)
+        {
+            _selectionBounds = targetBounds;
+            _selectionBoundsInitialized = true;
+        }
+        else
+        {
+            _selectionAnimationTargetBounds = targetBounds;
+        }
+
+        var underline = new Rectangle(
+            (int)_selectionBounds.X + this.ScaleForDpi(6),
+            ClientSize.Height - this.ScaleForDpi(3),
+            Math.Max(8, (int)_selectionBounds.Width - this.ScaleForDpi(12)),
+            this.ScaleForDpi(3));
+        using var brush = new SolidBrush(Color.FromArgb(17, 121, 91));
+        graphics.FillRectangle(brush, underline);
     }
 
     private void DrawSelectionSlider(Graphics graphics, int radius)
@@ -405,7 +436,7 @@ internal sealed class SidebarTabBar : Control
         {
             SidebarTabBarMode.WorkspaceOnly => [Loc.Get("sidebar.workspace")],
             SidebarTabBarMode.OutlineOnly => [Loc.Get("sidebar.outline")],
-            _ => [Loc.Get("sidebar.workspace"), Loc.Get("sidebar.outline")],
+            _ => [Loc.Get("sidebar.workspace"), Loc.Get("sidebar.outline"), "要求"],
         };
         _selectedIndex = Math.Clamp(_selectedIndex, 0, _tabs.Length - 1);
         _hoveredIndex = -1;

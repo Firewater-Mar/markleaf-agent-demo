@@ -101,5 +101,11 @@ release/
 # Local project notes (not part of the public documentation)
 /project-notes/
 
+# Repository-local SDK used for reproducible Windows builds.
+/.tools/
+
+# Local MarkLeaf project data, indexes, audit logs, and cached sources.
+/.markleaf/
+
 # Local test change requests are reviewed separately from source history.
 [Tt][Cc][Rr]*.md

@@ -2,7 +2,7 @@
 
 [English](./docs/README.en.md) | [日本語](./docs/README.ja.md) | [繁體中文](./docs/README.zh-TW.md)
 
-MarkLeaf 是轻量化 Markdown 可视化编辑器，提供 Windows/macOS 原生应用和 VS Code 扩展，追求简洁的界面与排版，为思考、阅读与写作提供专注的空间。
+MarkLeaf 是轻量化 **Markdown** 可视化编辑器，提供 Windows/macOS 原生应用和 VS Code 扩展，追求简洁的界面与排版，为思考、阅读与写作提供专注的空间。
 
 项目最初由 [fcz](https://github.com/zhuanshunjishi2017) 发起并制作，初版仅支持 Windows 平台，后由 [Na Bian](https://github.com/Na-Bian) 提供了 macOS 版本的支持。**当前，Windows 版本与 macOS 版本共同更新。**
 
@@ -38,7 +38,7 @@ Windows 版打开后就是 Agent 工作台：左侧管理项目与资料，中�
 
 #### 配色方案
 
-应用支持**多种颜色主题**，包含深色与浅色，<strong>实现了 Win32 菜单对深色模式的支持。</strong>以下是部分预置的颜色主题效果。
+应用支持**多种颜色主题**，包含深色与浅色，**实现了 Win32 菜单对深色模式的支持。**以下是部分预置的颜色主题效果。
 
 > [!TIP]
 > 由于配色方案与渲染主题**都是 CSS 样式**，故您可以**完全自定义**颜色主题和排版样式，之后，我们也会推出相关的主题编辑器可供编辑。
@@ -53,7 +53,7 @@ Windows 版打开后就是 Agent 工作台：左侧管理项目与资料，中�
 - Mermaid 图表（将图表渲染为 SVG）
 - 脚注的定义引用与跳转
 - GitHub 风格警示框，包含备注、提示、警告等，在每种主题下有不同的显示效果。
-- <strong>（自定义语法）</strong>图片、表格显示标题。
+- **（自定义语法）**图片、表格显示标题。
 
 ### 优秀的导出效果
 
@@ -157,9 +157,9 @@ corepack pnpm package:vscode
 
 扩展版本由 `apps/vscode/package.json` 的 `version` 管理，与原生产品版本独立。当前扩展 ID 为 `zhuanshunjishi2017.markleaf`。使用 MarkLeaf 的“全部设置”或扩展详情中的 **扩展设置 / Extension Settings** 打开设置页；运行时按当前安装包 ID 定位，避免沿用旧本地包的搜索筛选。`markleaf.*` 配置键保持不变。
 
-在 VS Code 中使用 <strong>Install from VSIX…</strong> 安装生成的扩展包。新打开的 `.md`、`.markdown` 文件默认进入 MarkLeaf；已有源码标签使用 <strong>Reopen Editor With… → MarkLeaf</strong>，已有默认关联使用 <strong>Configure default editor for…</strong> 调整。<strong>Ctrl+Shift+V</strong>（macOS 为 <strong>Cmd+Shift+V</strong>）在原生源码与渲染视图间切换。
+在 VS Code 中使用 **Install from VSIX…** 安装生成的扩展包。新打开的 `.md`、`.markdown` 文件默认进入 MarkLeaf；已有源码标签使用 **Reopen Editor With… → MarkLeaf**，已有默认关联使用 **Configure default editor for…** 调整。**Ctrl+Shift+V**（macOS 为 **Cmd+Shift+V**）在原生源码与渲染视图间切换。
 
-升级后先保存文档，再运行 <strong>Developer: Reload Window</strong>。若设置项缺失或提示 `markleaf.shortcuts` 未注册，需要重新加载整个窗口。通过 <strong>视图 → 快捷键…</strong> 录入格式键位。阅读不会回写；可视化编辑可能规范化 Markdown 格式，详见 [扩展使用与保真边界](./apps/vscode/README.md)。
+升级后先保存文档，再运行 **Developer: Reload Window**。若设置项缺失或提示 `markleaf.shortcuts` 未注册，需要重新加载整个窗口。通过 **视图 → 快捷键…** 录入格式键位。阅读不会回写；可视化编辑可能规范化 Markdown 格式，详见 [扩展使用与保真边界](./apps/vscode/README.md)。
 
 ### Web 前端编辑器
 
@@ -185,7 +185,7 @@ dotnet build .\apps\windows\MarkLeaf\MarkLeaf.csproj --no-restore
 dotnet run --project .\apps\windows\MarkLeaf\MarkLeaf.csproj
 ```
 
-<strong>Windows 发布支持两种安装包格式：Inno Setup 生成用于 GitHub Release 的</strong> `.exe`<strong>，MSIX 生成用于 Microsoft Store 的商店包。MSIX 构建默认输出</strong> `win-x64` <strong>和</strong> `win-arm64` <strong>两个自包含架构，并支持简体中文、繁体中文、英语和日语资源。</strong>
+**Windows 发布支持两种安装包格式：Inno Setup 生成用于 GitHub Release 的** `.exe`**，MSIX 生成用于 Microsoft Store 的商店包。MSIX 构建默认输出** `win-x64` **和** `win-arm64` **两个自包含架构，并支持简体中文、繁体中文、英语和日语资源。**
 
 MSIX 的商店身份、签名与构建参数见 [MSIX 打包说明](./apps/windows/msix/README.md)。
 

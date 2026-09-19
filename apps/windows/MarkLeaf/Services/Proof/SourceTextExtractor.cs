@@ -4,6 +4,8 @@ using System.IO.Compression;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Xml.Linq;
+using UglyToad.PdfPig;
+using UglyToad.PdfPig.DocumentLayoutAnalysis.TextExtractor;
 
 namespace MarkLeaf.Services.Proof;
 
@@ -68,6 +70,10 @@ internal static partial class SourceTextExtractor
 
     private static async Task<string> ExtractPdfAsync(string path, CancellationToken cancellationToken)
     {
+        var embedded = await Task.Run(() => ExtractPdfTextLayer(path, cancellationToken), cancellationToken)
+            .ConfigureAwait(false);
+        if (!string.IsNullOrWhiteSpace(embedded)) return embedded;
+
         var external = await TryRunPdfToTextAsync(path, cancellationToken).ConfigureAwait(false);
         if (!string.IsNullOrWhiteSpace(external)) return external;
 
@@ -81,6 +87,32 @@ internal static partial class SourceTextExtractor
             if (builder.Length >= MaxCharacters) break;
         }
         return builder.ToString();
+    }
+
+    private static string ExtractPdfTextLayer(string path, CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var document = PdfDocument.Open(path);
+            var builder = new StringBuilder();
+            var pageNumber = 0;
+            foreach (var page in document.GetPages())
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                pageNumber++;
+                var text = ContentOrderTextExtractor.GetText(page);
+                if (string.IsNullOrWhiteSpace(text)) continue;
+                builder.AppendLine($"\u001epage:{pageNumber}\u001e");
+                builder.AppendLine(text.Trim());
+                builder.AppendLine();
+                if (builder.Length >= MaxCharacters) break;
+            }
+            return builder.ToString();
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            return string.Empty;
+        }
     }
 
     private static async Task<string> TryRunPdfToTextAsync(string path, CancellationToken cancellationToken)

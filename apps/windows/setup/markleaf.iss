@@ -1,4 +1,4 @@
-; MarkLeaf Inno Setup installer.
+; MarkLeaf Agent Inno Setup installer.
 ; Build with:
 ;   ISCC /DMyAppVersion=1.4.1 /DBuildNumber=326 /DAppArchitecture=x64 /DAppArchitectureAllowed=x64compatible /DSelfContained=0 /DSourceDir=... markleaf.iss
 
@@ -21,8 +21,8 @@
   #define SourceDir "..\publish"
 #endif
 
-#define AppDisplayName "MarkLeaf"
-#define AppPublisher "MarkLeaf"
+#define AppDisplayName "MarkLeaf Agent"
+#define AppPublisher "MarkLeaf Agent"
 #define AppExeName "MarkLeaf.exe"
 #define AppArchitectureLabel "win-" + AppArchitecture
 ; Windows file versions must be numeric, so strip a prerelease suffix such as -beta.1.
@@ -34,30 +34,30 @@
 #endif
 
 [Setup]
-AppId={{D2C5E4B7-9E4B-4D2A-9DA8-6CFBEF7E1A34}
+AppId={{62B5C3A7-7D80-48C1-9BCE-60F26F12E7B8}
 AppName={#AppDisplayName}
 AppVersion={#MyAppVersion}
 AppVerName={#AppDisplayName} {#MyAppVersion}
 AppPublisher={#AppPublisher}
 AppPublisherURL=https://github.com/zhuanshunjishi2017/markleaf
 AppSupportURL=https://github.com/zhuanshunjishi2017/markleaf/issues
-DefaultDirName={autopf}\MarkLeaf
-DefaultGroupName=MarkLeaf
+DefaultDirName={autopf}\MarkLeaf Agent
+DefaultGroupName=MarkLeaf Agent
 DisableProgramGroupPage=yes
 DisableDirPage=auto
 PrivilegesRequired=admin
 ArchitecturesAllowed={#AppArchitectureAllowed}
 ArchitecturesInstallIn64BitMode={#AppArchitectureAllowed}
 OutputDir=.
-OutputBaseFilename=MarkLeaf-{#MyAppVersion}-{#AppArchitectureLabel}{#RuntimeSuffix}
+OutputBaseFilename=MarkLeaf-Agent-{#MyAppVersion}-{#AppArchitectureLabel}{#RuntimeSuffix}
 UninstallDisplayIcon={app}\{#AppExeName}
 Compression=lzma2/max
 SolidCompression=yes
 WizardStyle=modern
 ChangesAssociations=yes
-AppCopyright=Copyright (c) MarkLeaf
+AppCopyright=Copyright (c) MarkLeaf Agent
 VersionInfoVersion={#AppVersionNumber}
-VersionInfoDescription=MarkLeaf {#MyAppVersion} (Build {#BuildNumber})
+VersionInfoDescription=MarkLeaf Agent {#MyAppVersion} (Build {#BuildNumber})
 CloseApplications=yes
 RestartApplications=no
 
@@ -87,17 +87,17 @@ Name: "startmenu"; Description: "{cm:AddToStartMenu}"
 Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: recursesubdirs ignoreversion
 
 [Icons]
-Name: "{autoprograms}\MarkLeaf"; Filename: "{app}\{#AppExeName}"; WorkingDir: "{app}"; Tasks: startmenu
-Name: "{autodesktop}\MarkLeaf"; Filename: "{app}\{#AppExeName}"; WorkingDir: "{app}"; Tasks: desktopicon
+Name: "{autoprograms}\MarkLeaf Agent"; Filename: "{app}\{#AppExeName}"; WorkingDir: "{app}"; Tasks: startmenu
+Name: "{autodesktop}\MarkLeaf Agent"; Filename: "{app}\{#AppExeName}"; WorkingDir: "{app}"; Tasks: desktopicon
 
 [Registry]
 ; Register only in HKCU because this is a per-user installer.
-Root: HKCU; Subkey: "Software\Classes\MarkLeaf.MarkdownDoc"; ValueType: string; ValueName: ""; ValueData: "MarkLeaf Markdown Document"; Flags: uninsdeletekey; Tasks: associate_md or associate_txt
-Root: HKCU; Subkey: "Software\Classes\MarkLeaf.MarkdownDoc\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: "{app}\Resources\App\fileicon.ico"; Tasks: associate_md or associate_txt
-Root: HKCU; Subkey: "Software\Classes\MarkLeaf.MarkdownDoc\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\{#AppExeName}"" --open-document ""%1"""; Tasks: associate_md or associate_txt
-Root: HKCU; Subkey: "Software\Classes\.md\OpenWithProgids"; ValueType: string; ValueName: "MarkLeaf.MarkdownDoc"; ValueData: ""; Flags: uninsdeletevalue; Tasks: associate_md
-Root: HKCU; Subkey: "Software\Classes\.markdown\OpenWithProgids"; ValueType: string; ValueName: "MarkLeaf.MarkdownDoc"; ValueData: ""; Flags: uninsdeletevalue; Tasks: associate_md
-Root: HKCU; Subkey: "Software\Classes\.txt\OpenWithProgids"; ValueType: string; ValueName: "MarkLeaf.MarkdownDoc"; ValueData: ""; Flags: uninsdeletevalue; Tasks: associate_txt
+Root: HKCU; Subkey: "Software\Classes\MarkLeafAgent.MarkdownDoc"; ValueType: string; ValueName: ""; ValueData: "MarkLeaf Agent Markdown Document"; Flags: uninsdeletekey; Tasks: associate_md or associate_txt
+Root: HKCU; Subkey: "Software\Classes\MarkLeafAgent.MarkdownDoc\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: "{app}\Resources\App\fileicon.ico"; Tasks: associate_md or associate_txt
+Root: HKCU; Subkey: "Software\Classes\MarkLeafAgent.MarkdownDoc\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\{#AppExeName}"" --open-document ""%1"""; Tasks: associate_md or associate_txt
+Root: HKCU; Subkey: "Software\Classes\.md\OpenWithProgids"; ValueType: string; ValueName: "MarkLeafAgent.MarkdownDoc"; ValueData: ""; Flags: uninsdeletevalue; Tasks: associate_md
+Root: HKCU; Subkey: "Software\Classes\.markdown\OpenWithProgids"; ValueType: string; ValueName: "MarkLeafAgent.MarkdownDoc"; ValueData: ""; Flags: uninsdeletevalue; Tasks: associate_md
+Root: HKCU; Subkey: "Software\Classes\.txt\OpenWithProgids"; ValueType: string; ValueName: "MarkLeafAgent.MarkdownDoc"; ValueData: ""; Flags: uninsdeletevalue; Tasks: associate_txt
 
 [Run]
 Filename: "{app}\{#AppExeName}"; Description: "{cm:LaunchProgram,{#AppDisplayName}}"; WorkingDir: "{app}"; Flags: nowait postinstall skipifsilent
@@ -114,16 +114,16 @@ begin
 
   if not WizardIsTaskSelected('associate_md') then
   begin
-    RegDeleteValue(HKCU, 'Software\Classes\.md\OpenWithProgids', 'MarkLeaf.MarkdownDoc');
-    RegDeleteValue(HKCU, 'Software\Classes\.markdown\OpenWithProgids', 'MarkLeaf.MarkdownDoc');
+    RegDeleteValue(HKCU, 'Software\Classes\.md\OpenWithProgids', 'MarkLeafAgent.MarkdownDoc');
+    RegDeleteValue(HKCU, 'Software\Classes\.markdown\OpenWithProgids', 'MarkLeafAgent.MarkdownDoc');
   end;
 
   if not WizardIsTaskSelected('associate_txt') then
-    RegDeleteValue(HKCU, 'Software\Classes\.txt\OpenWithProgids', 'MarkLeaf.MarkdownDoc');
+    RegDeleteValue(HKCU, 'Software\Classes\.txt\OpenWithProgids', 'MarkLeafAgent.MarkdownDoc');
 
   if not WizardIsTaskSelected('startmenu') then
-    DeleteFile(ExpandConstant('{autoprograms}\MarkLeaf.lnk'));
+    DeleteFile(ExpandConstant('{autoprograms}\MarkLeaf Agent.lnk'));
 
   if not WizardIsTaskSelected('desktopicon') then
-    DeleteFile(ExpandConstant('{autodesktop}\MarkLeaf.lnk'));
+    DeleteFile(ExpandConstant('{autodesktop}\MarkLeaf Agent.lnk'));
 end;

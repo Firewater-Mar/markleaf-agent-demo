@@ -17,6 +17,7 @@ internal static class SystemIconProvider
     // File type icons
     public static string TextFileIcon => IsWindows11 ? "" : "\uE8A5";
     public static string MarkdownFileIcon => IsWindows11 ? "" : "";
+    public static string GenericFileIcon => IsWindows11 ? "" : "\uE8A5";
 
     // View toggle icons
     public static string TreeViewIcon => IsWindows11 ? "" : "\uF0E2";
@@ -47,6 +48,7 @@ internal static class SystemIconProvider
     public static string PdfIcon => IsWindows11 ? "\uEA90" : "\uEA90";
     public static string HtmlIcon => IsWindows11 ? "\uE943" : "\uE943";
     public static string ImageIcon => IsWindows11 ? "\uE91B" : "\uE91B";
+    public static string ExportIcon => IsWindows11 ? "\uE896" : "\uE896";
     public static string OptionalFontWarningIcon => IsWindows11 ? "\uF736" : "\uE7BA";
 
     private static bool DetectWindows11()

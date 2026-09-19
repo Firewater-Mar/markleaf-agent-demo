@@ -80,4 +80,25 @@ public sealed class AiKnowledgeRetrieverTests
             "https://example.test/v1/chat/completions",
             OpenAiCompatibleClient.BuildChatCompletionsUrl("https://example.test/v1/chat/completions").ToString().TrimEnd('/'));
     }
+
+    [TestMethod]
+    public void BuildModelsUrl_AcceptsBaseAndChatUrls()
+    {
+        Assert.AreEqual(
+            "http://localhost:11434/v1/models",
+            OpenAiCompatibleClient.BuildModelsUrl("http://localhost:11434/v1").ToString().TrimEnd('/'));
+        Assert.AreEqual(
+            "https://example.test/v1/models",
+            OpenAiCompatibleClient.BuildModelsUrl("https://example.test/v1/chat/completions").ToString().TrimEnd('/'));
+    }
+
+    [TestMethod]
+    public void ReadModelIds_SupportsOpenAiAndOllamaResponses()
+    {
+        using var openAi = System.Text.Json.JsonDocument.Parse("""{"data":[{"id":"gpt-test"},{"id":"gpt-test"}]}""");
+        using var ollama = System.Text.Json.JsonDocument.Parse("""{"models":[{"name":"qwen3:4b"},{"model":"llama3.2"}]}""");
+
+        CollectionAssert.AreEqual(new[] { "gpt-test" }, OpenAiCompatibleClient.ReadModelIds(openAi.RootElement).ToArray());
+        CollectionAssert.AreEqual(new[] { "qwen3:4b", "llama3.2" }, OpenAiCompatibleClient.ReadModelIds(ollama.RootElement).ToArray());
+    }
 }

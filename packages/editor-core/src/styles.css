@@ -774,8 +774,6 @@ html.markleaf-auto-hide-scrollbar .cm-scroller::-webkit-scrollbar-thumb {
   border: none;
   background: transparent;
   color: #24292f;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  font-size: 14px;
   line-height: 1;
   display: inline-flex;
   align-items: center;
@@ -784,22 +782,36 @@ html.markleaf-auto-hide-scrollbar .cm-scroller::-webkit-scrollbar-thumb {
   cursor: default;
 }
 
+.format-menu-button svg {
+  width: 17px;
+  height: 17px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  pointer-events: none;
+}
+
 .format-menu-dark .format-menu-button {
   color: #FFFFFF;
 }
 
 .format-menu-button:hover,
 .format-menu-button:focus-visible {
-  background: #95CDFB;
+  background: #e4f1ec;
+  outline: 2px solid #2a7e68;
+  outline-offset: -2px;
 }
 
 .format-menu-dark .format-menu-button:hover,
 .format-menu-dark .format-menu-button:focus-visible {
-  background: #1165AA;
+  background: #174f42;
 }
 
 .format-menu-button.format-menu-button-active {
-  background: #95CDFB;
+  background: #cfe7de;
+  color: #115945;
 }
 
 .format-menu-button:disabled {

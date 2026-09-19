@@ -9,7 +9,8 @@ internal sealed record AiSource(
     int StartLine,
     int EndLine,
     string Content,
-    double Score);
+    double Score,
+    string? Locator = null);
 
 internal static class AiKnowledgeRetriever
 {
@@ -89,7 +90,10 @@ internal static class AiKnowledgeRetriever
         var builder = new StringBuilder();
         foreach (var source in sources)
         {
-            builder.AppendLine($"[{source.Id}] {source.DisplayPath}:{source.StartLine}-{source.EndLine}");
+            var locator = string.IsNullOrWhiteSpace(source.Locator)
+                ? $"第 {source.StartLine}-{source.EndLine} 行"
+                : source.Locator;
+            builder.AppendLine($"[{source.Id}] {source.DisplayPath}，{locator}");
             builder.AppendLine(source.Content.Trim());
             builder.AppendLine();
         }

@@ -6,6 +6,7 @@ using MarkLeaf.Documents;
 using MarkLeaf.Editor;
 using MarkLeaf.Services;
 using MarkLeaf.Services.ExternalLinks;
+using MarkLeaf.Services.Export;
 using MarkLeaf.Services.Recovery;
 using MarkLeaf.Services.Settings;
 using MarkLeaf.Services.Styles;
@@ -256,6 +257,127 @@ internal sealed partial class MainForm
             return;
         }
 
+        SaveLastExportOptions(options);
+        await RunExportAsync(options, defaultName);
+    }
+
+    private async Task ExportWordAsync()
+    {
+        if (_editorHost?.IsDocumentLoaded != true || _document is null) return;
+        var defaultName = _document.FilePath is not null
+            ? Path.GetFileNameWithoutExtension(_document.FilePath)
+            : Loc.Get("common.unnamed");
+        using var dialog = new SaveFileDialog
+        {
+            Title = "导出 Word 文档",
+            Filter = "Word 文档 (*.docx)|*.docx",
+            DefaultExt = "docx",
+            AddExtension = true,
+            FileName = defaultName + ".docx",
+            RestoreDirectory = true,
+            OverwritePrompt = true,
+        };
+        if (ShowModal(() => dialog.ShowDialog(this)) != DialogResult.OK) return;
+        await ExportWordToPathAsync(dialog.FileName);
+    }
+
+    private async Task ExportWordToPathAsync(string outputPath)
+    {
+        if (_editorHost?.IsDocumentLoaded != true || _document is null) return;
+        try
+        {
+            SetStatus(Loc.Get("export.generating"));
+            var snapshot = await _editorHost.RequestSnapshotAsync(TimeSpan.FromSeconds(10));
+            await DocxExportService.ExportAsync(snapshot.Markdown, outputPath);
+            SetStatus(Loc.Get("export.complete"));
+            var folder = Path.GetDirectoryName(outputPath) ?? Environment.CurrentDirectory;
+            ShowExportCompleteDialog(Path.GetFileName(outputPath), outputPath, folder);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or InvalidDataException)
+        {
+            _logger.Error($"Word export failed: {outputPath}.", exception);
+            SetStatus(Loc.Get("export.failed"));
+            ShowMessage(this, $"Word 导出失败。\r\n\r\n{exception.Message}", "MarkLeaf", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+    }
+
+    /// <summary>
+    /// Agent requests originate inside WebView's message callback. Queueing the
+    /// modal dialog to the next UI turn lets the browser finish dispatching the
+    /// message first, so the dialog reliably receives focus and is not hidden.
+    /// </summary>
+    private Task<bool> ScheduleAgentExportAsync(string requestedFormat)
+    {
+        if (IsDisposed || !IsHandleCreated
+            || _editorHost?.IsDocumentLoaded != true
+            || _document is null)
+        {
+            return Task.FromResult(false);
+        }
+
+        var scheduled = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        try
+        {
+            BeginInvoke(new Action(() =>
+            {
+                if (IsDisposed || _editorHost?.IsDocumentLoaded != true || _document is null)
+                {
+                    scheduled.TrySetResult(false);
+                    return;
+                }
+
+                // Resolve the Agent turn before entering a nested modal loop.
+                scheduled.TrySetResult(true);
+                _ = ShowAgentExportDialogAsync(requestedFormat);
+            }));
+        }
+        catch (InvalidOperationException)
+        {
+            scheduled.TrySetResult(false);
+        }
+
+        return scheduled.Task;
+    }
+
+    private async Task ShowAgentExportDialogAsync(string requestedFormat)
+    {
+        if (_editorHost?.IsDocumentLoaded != true || _document is null) return;
+
+        var documentName = _document.FilePath is not null
+            ? Path.GetFileName(_document.FilePath)
+            : Loc.Get("common.unnamed");
+        var defaultName = _document.FilePath is not null
+            ? Path.GetFileNameWithoutExtension(_document.FilePath)
+            : Loc.Get("common.unnamed");
+        var defaultFolder = _document.FilePath is not null
+            ? Path.GetDirectoryName(_document.FilePath)
+            : null;
+        if (string.IsNullOrWhiteSpace(defaultFolder) || !Directory.Exists(defaultFolder))
+        {
+            defaultFolder = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+        }
+
+        using var dialog = new AgentExportDialog(
+            documentName,
+            defaultName,
+            defaultFolder,
+            requestedFormat);
+        if (ShowModal(() => dialog.ShowDialog(this)) != DialogResult.OK) return;
+
+        var outputPath = dialog.OutputPath;
+        if (string.Equals(dialog.Format, "docx", StringComparison.OrdinalIgnoreCase))
+        {
+            await ExportWordToPathAsync(outputPath);
+            return;
+        }
+
+        var options = BuildLastExportOptions(outputPath) with
+        {
+            Format = string.Equals(dialog.Format, "pdf", StringComparison.OrdinalIgnoreCase)
+                ? "pdf"
+                : "html",
+            OutputPath = outputPath,
+        };
         SaveLastExportOptions(options);
         await RunExportAsync(options, defaultName);
     }

@@ -27,6 +27,7 @@ internal sealed partial class MainForm
 
         _document.IsDirty = dirtyElement.GetBoolean();
         _document.Revision = message.Revision;
+        _agentPanel.InvalidateDocumentAnalysis();
         _documentTabBar.SetDocuments(_openDocuments, _activeDocumentIndex);
         UpdateDocumentChrome();
 
@@ -1302,6 +1303,14 @@ internal sealed partial class MainForm
             Text = $"{(_document.IsDirty ? "*" : string.Empty)}{name} - MarkLeaf";
         }
 
+        if (UseWorkspaceShellChrome)
+        {
+            Text = _document is null
+                ? "MarkLeaf Agent"
+                : $"{(_document.IsDirty ? "*" : string.Empty)}{name} - MarkLeaf Agent";
+        }
+
+        UpdateWorkspaceChromeContext();
         _menuService.RefreshStates();
     }
 
