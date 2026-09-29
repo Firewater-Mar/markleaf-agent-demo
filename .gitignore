@@ -101,5 +101,8 @@ release/
 # Local project notes (not part of the public documentation)
 /project-notes/
 
+# Repository-local SDK used by development machines; never ship it with MarkLeaf.
+/.tools/
+
 # Local test change requests are reviewed separately from source history.
 [Tt][Cc][Rr]*.md

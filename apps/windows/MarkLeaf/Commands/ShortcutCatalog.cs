@@ -49,6 +49,7 @@ public static class ShortcutCatalog
         new(AppCommand.InsertMathInline, "shortcut.insertMathInline", Keys.Control | Keys.M),
         new(AppCommand.ToggleEditorFocusMode, "shortcut.editorFocusMode", Keys.F8),
         new(AppCommand.ToggleEditorTypewriterMode, "shortcut.editorTypewriterMode", Keys.F9),
+        new(AppCommand.ToggleAiMode, "shortcut.aiMode", Keys.F10),
         new(AppCommand.ToggleSourceMode, "shortcut.sourceMode", Keys.Control | Keys.Oem2),
         new(AppCommand.InsertHorizontalRule, "shortcut.horizontalRule", Keys.Control | Keys.Shift | Keys.L),
         new(AppCommand.ToggleSidebar, "shortcut.toggleSidebar", Keys.Control | Keys.Alt | Keys.Z),

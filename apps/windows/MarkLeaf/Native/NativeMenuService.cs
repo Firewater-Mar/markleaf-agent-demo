@@ -553,6 +553,7 @@ internal sealed class NativeMenuService : IDisposable
             AppendMainMenuCommand(menu, AppCommand.OpenDocument, Loc.Get("menu.file.open"));
             AppendMainMenuCommand(menu, AppCommand.OpenDocumentReadOnly, Loc.Get("menu.file.openReadOnly"));
             AppendMainMenuCommand(menu, AppCommand.OpenDocumentInNewWindow, Loc.Get("menu.file.openInNewWindow"));
+            AppendMainMenuCommand(menu, AppCommand.ImportTextOrHtml, Loc.Get("menu.file.importTextOrHtml"));
             AppendMainMenuCommand(menu, AppCommand.OpenFolder, Loc.Get("menu.file.openFolder"));
 
             _recentWorkspaceMenu = CreateMenu(true);
@@ -1324,6 +1325,7 @@ internal sealed class NativeMenuService : IDisposable
             AppendSeparator(menu);
             AppendMainMenuCommand(menu, AppCommand.ToggleEditorFocusMode, Loc.Get("menu.view.editorFocusMode"));
             AppendMainMenuCommand(menu, AppCommand.ToggleEditorTypewriterMode, Loc.Get("menu.view.editorTypewriterMode"));
+            AppendMainMenuCommand(menu, AppCommand.ToggleAiMode, Loc.Get("menu.view.aiMode"));
             AppendSeparator(menu);
             _zoomMenu = CreateMenu(true);
             AppendMainMenuCommand(menu, AppCommand.ShowThemeSettings, Loc.Get("menu.view.theme"));

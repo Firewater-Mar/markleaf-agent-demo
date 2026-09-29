@@ -24,12 +24,14 @@ public static class CommandStateResolver
                 or AppCommand.ShowColorThemes
                 or AppCommand.ShowTypographyStyles
                 or AppCommand.ShowThemeSettings
+                or AppCommand.ImportTextOrHtml
                 or AppCommand.RecoverUnsavedFiles
                 or AppCommand.FollowSystemColorMode => new(true),
             AppCommand.ShowCodeHighlight => new(context.EditorReady, context.ShowCodeHighlight),
 
             AppCommand.ToggleSidebar => new(!context.FocusMode, context.SidebarVisible),
             AppCommand.ToggleFocusMode => new(true, context.FocusMode),
+            AppCommand.ToggleAiMode => new(true, context.AiMode),
             AppCommand.ToggleEditorFullScreen => new(true, context.EditorFullScreen),
             AppCommand.ViewTree => new(true, !context.ListViewActive),
             AppCommand.ViewList => new(true, context.ListViewActive),

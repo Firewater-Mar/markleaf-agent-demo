@@ -99,6 +99,7 @@ public enum AppCommand
     ToggleFocusMode = 0x1308,
     ToggleEditorFocusMode = 0x1328,
     ToggleEditorTypewriterMode = 0x1329,
+    ToggleAiMode = 0x1415,
     SelectAll = 0x1309,
     ExitCode = 0x130A,
     EditMath = 0x130B,
@@ -171,6 +172,7 @@ public enum AppCommand
     DuplicateParagraph,
     DeleteParagraph,
     LocateCurrentDocumentInWorkspace,
+    ImportTextOrHtml = 0x1414,
 }
 
 public readonly record struct CommandState(bool IsEnabled, bool IsChecked = false);
@@ -180,6 +182,7 @@ public readonly record struct CommandContext(
     bool EditorReady,
     bool SidebarVisible = false,
     bool FocusMode = false,
+    bool AiMode = false,
     bool OutlineActive = false,
     bool StatusBarVisible = true,
     bool ShowCodeHighlight = false,

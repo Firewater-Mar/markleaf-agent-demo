@@ -7,6 +7,7 @@ using MarkLeaf.Services;
 using MarkLeaf.Services.Logging;
 using MarkLeaf.Services.Settings;
 using MarkLeaf.Services.Styles;
+using MarkLeaf.Services.Typography;
 using MarkLeaf.UI.Controls;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.WinForms;
@@ -305,6 +306,36 @@ internal sealed class EditorHostController : IDisposable
         {
             _snapshotRequests.Remove(requestId);
         }
+    }
+
+    public async Task<IReadOnlyList<DomBlockMeasurement>> MeasureTypographyAsync(
+        string markdown,
+        CancellationToken cancellationToken = default)
+    {
+        if (_webView.CoreWebView2 is null || !_documentLoaded) return [];
+        var indexes = MarkdownAst.Parse(markdown).Where(x => x.Kind != MarkdownBlockKind.Blank).Select(x => x.Index).ToArray();
+        var indexesJson = JsonSerializer.Serialize(indexes);
+        var script = $$"""
+            (() => {
+              const indexes = {{indexesJson}};
+              const root = document.querySelector('.ProseMirror') || document.querySelector('[contenteditable="true"]') || document.body;
+              const rootRect = root.getBoundingClientRect();
+              const elements = Array.from(root.children).filter(e => {
+                const r = e.getBoundingClientRect();
+                return getComputedStyle(e).display !== 'none' && r.height > 0;
+              });
+              return elements.slice(0, indexes.length).map((element, i) => {
+                const r = element.getBoundingClientRect(); const style = getComputedStyle(element);
+                return { blockIndex:indexes[i], tag:element.tagName.toLowerCase(), left:r.left,
+                  top:r.top + window.scrollY, width:Math.max(r.width, element.scrollWidth || 0), height:r.height,
+                  contentWidth:rootRect.width, pageHeight:930.52,
+                  lineHeight:Number.parseFloat(style.lineHeight) || Number.parseFloat(style.fontSize) * 1.5 };
+              });
+            })();
+            """;
+        var json = await _webView.CoreWebView2.ExecuteScriptAsync(script).WaitAsync(cancellationToken);
+        return JsonSerializer.Deserialize<List<DomBlockMeasurement>>(json,
+            new JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? [];
     }
 
     public void ApplyCssVariables(float lineHeight, int fontSize, int maxWidth, int sourceFontSize, string sourceFontFamily = "", string sourceCjkFontFamily = "", string cjkLang = "", bool visualCjkAutoSpacing = true, bool ignoreMaxWidth = false)

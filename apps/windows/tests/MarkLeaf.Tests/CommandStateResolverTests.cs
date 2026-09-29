@@ -15,6 +15,8 @@ public sealed class CommandStateResolverTests
         var ready = empty with { DocumentAvailable = true, EditorReady = true, SidebarVisible = true };
         Assert.IsTrue(CommandStateResolver.Resolve(AppCommand.SaveDocument, ready).IsEnabled);
         Assert.AreEqual(new CommandState(true, true), CommandStateResolver.Resolve(AppCommand.ToggleSidebar, ready));
+        Assert.AreEqual(new CommandState(true, true),
+            CommandStateResolver.Resolve(AppCommand.ToggleAiMode, ready with { AiMode = true }));
         Assert.IsFalse(CommandStateResolver.Resolve(AppCommand.ToggleSidebar, ready with { FocusMode = true }).IsEnabled);
         Assert.IsFalse(CommandStateResolver.Resolve(AppCommand.SwitchToOutline, ready with { IndependentOutlineSidebar = true }).IsEnabled);
     }

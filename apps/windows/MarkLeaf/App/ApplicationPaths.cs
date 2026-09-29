@@ -13,7 +13,7 @@ internal sealed record ApplicationPaths(
         var root = string.IsNullOrWhiteSpace(overrideRoot)
             ? Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "MarkLeaf")
+                "MarkLeafTypography")
             : Path.GetFullPath(overrideRoot);
 
         return new ApplicationPaths(

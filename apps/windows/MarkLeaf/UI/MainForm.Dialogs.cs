@@ -314,11 +314,14 @@ internal sealed partial class MainForm
         await RunExportAsync(options, defaultName);
     }
 
-    private async Task RunExportAsync(ExportOptions options, string defaultName)
+    private async Task<string?> RunExportAsync(
+        ExportOptions options,
+        string defaultName,
+        bool showCompletionDialog = true)
     {
         if (_editorHost is null)
         {
-            return;
+            return null;
         }
 
         var exportDir = Path.GetDirectoryName(options.OutputPath);
@@ -352,7 +355,7 @@ internal sealed partial class MainForm
             if (string.IsNullOrEmpty(html))
             {
                 SetStatus(Loc.Get("export.noContent"));
-                return;
+                return null;
             }
 
             // Export HTML is rendered in a separate WebView/file context where
@@ -405,7 +408,7 @@ internal sealed partial class MainForm
                 if (paths.Count == 0)
                 {
                     SetStatus(Loc.Get("export.noContent"));
-                    return;
+                    return null;
                 }
                 outputPath = paths[0];
                 exportDir = Path.GetDirectoryName(outputPath);
@@ -419,24 +422,29 @@ internal sealed partial class MainForm
             _logger.Info($"Document exported: {options.Format}/{options.Style} → {outputPath}");
 
             var exportedName = Path.GetFileName(outputPath);
-            ShowExportCompleteDialog(exportedName, outputPath, exportDir!);
+            if (showCompletionDialog)
+                ShowExportCompleteDialog(exportedName, outputPath, exportDir!);
+            return outputPath;
         }
         catch (OperationCanceledException)
         {
             _logger.Warning($"Export timed out or was cancelled: {options.OutputPath}.");
             SetStatus(Loc.Get("export.failed"));
+            return null;
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {
             _logger.Error($"Export failed: {options.OutputPath}.", exception);
             ShowMessage(this, Loc.Get("export.failed") + "\r\n\r\n" + exception.Message, "MarkLeaf",
                 MessageBoxButtons.OK, MessageBoxIcon.Error);
+            return null;
         }
         catch (Exception exception)
         {
             _logger.Error($"Export failed: {options.OutputPath}.", exception);
             ShowMessage(this, Loc.Get("export.failed") + "\r\n\r\n" + exception.Message, "MarkLeaf",
                 MessageBoxButtons.OK, MessageBoxIcon.Error);
+            return null;
         }
     }
 

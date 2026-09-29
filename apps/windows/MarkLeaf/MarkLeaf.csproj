@@ -1,5 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
+    <Product>MarkLeaf Typography</Product>
+    <AssemblyTitle>MarkLeaf Typography</AssemblyTitle>
     <OutputType>WinExe</OutputType>
     <TargetFramework>net10.0-windows</TargetFramework>
     <UseWindowsForms>true</UseWindowsForms>
@@ -9,17 +11,22 @@
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>Resources\App\App.ico</ApplicationIcon>
     <RootNamespace>MarkLeaf</RootNamespace>
-    <Version>1.7.5</Version>
+    <Version>2.7.8</Version>
     <!-- BuildNumber is resolved from the current Git commit count by Directory.Build.targets. -->
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
     <Company>MarkLeaf</Company>
-    <Description>A lightweight native Markdown editor for Windows.</Description>
+    <Description>An offline-first A4 Markdown typography agent for Windows.</Description>
     <!-- The project guide requires matching PerMonitorV2 declarations in both locations. -->
     <NoWarn>$(NoWarn);WFO0003</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4078.44" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\MarkLeaf.AI.Contracts\MarkLeaf.AI.Contracts.csproj" />
+    <ProjectReference Include="..\MarkLeaf.AI.OpenAICompatible\MarkLeaf.AI.OpenAICompatible.csproj" />
   </ItemGroup>
 
   <ItemGroup>

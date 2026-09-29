@@ -136,6 +136,7 @@ internal sealed partial class MainForm
             EditorReady: _editorHost?.IsDocumentLoaded == true,
             SidebarVisible: !_sidebarSplit.Panel1Collapsed,
             FocusMode: _focusMode,
+            AiMode: _aiMode,
             EditorFullScreen: _editorFullScreen,
             StatusBarVisible: _statusStrip?.Visible != false,
             OutlineActive: _sidebarActiveOutline,
@@ -183,6 +184,9 @@ internal sealed partial class MainForm
                 break;
             case AppCommand.OpenDocumentInNewWindow:
                 OpenDocumentInNewWindow();
+                break;
+            case AppCommand.ImportTextOrHtml:
+                _ = ImportTextOrHtmlAsync();
                 break;
             case AppCommand.OpenFolder:
                 _ = SelectWorkspaceFolderAsync();
@@ -255,6 +259,9 @@ internal sealed partial class MainForm
                 break;
             case AppCommand.ToggleEditorTypewriterMode:
                 ToggleEditorTypewriterMode();
+                break;
+            case AppCommand.ToggleAiMode:
+                ToggleAiMode();
                 break;
             case AppCommand.SwitchToWorkspace:
                 ShowSidebarView(outline: false);

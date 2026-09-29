@@ -75,6 +75,8 @@ internal sealed partial class MainForm : Form
     private bool _closeApproved;
     private int _effectiveDpi;
     private readonly LiveSplitContainer _sidebarSplit;
+    private SplitContainer _aiSplit = default!;
+    private TypographyAiPanel _aiPanel = default!;
     private LiveSplitContainer _outlineSplit = default!;
     private Panel _detachedOutlinePanel = default!;
     private Panel _detachedOutlineContentHost = default!;
@@ -144,6 +146,7 @@ internal sealed partial class MainForm : Form
         GraphicsUnit.Point);
     private bool _menuDarkMode;
     private bool _focusMode;
+    private bool _aiMode;
     private bool _editorFullScreen;
     private FormWindowState _windowStateBeforeEditorFullScreen;
     private Rectangle _boundsBeforeEditorFullScreen;
@@ -317,8 +320,9 @@ internal sealed partial class MainForm : Form
         Bounds = new Rectangle(placement.Left, placement.Top, placement.Width, placement.Height);
 
         _sidebarSplit = CreateSidebarSplit(placement.WorkspaceWidth, placement.OutlineWidth);
+        _aiSplit = CreateAiWorkspaceSplit();
 
-        Controls.Add(_sidebarSplit);
+        Controls.Add(_aiSplit);
         _statusStrip = CreateStatusBar();
         _outlineSplit.Panel1.Controls.Add(_statusStrip);
         // Sidebar visibility is a window preference, independent of whether a
@@ -608,7 +612,7 @@ internal sealed partial class MainForm : Form
         var executed = _commandRouter.ExecuteIfEnabled(command);
         if (string.IsNullOrWhiteSpace(_options.CommandReportPath))
         {
-            Close();
+            CompleteSmokeCommand();
             return;
         }
 
@@ -618,13 +622,32 @@ internal sealed partial class MainForm : Form
             Executed = executed,
             SidebarVisible = !_sidebarSplit.Panel1Collapsed,
             FocusMode = _focusMode,
+            AiMode = _aiMode,
             Status = _statusLabel.Text,
         };
         Directory.CreateDirectory(Path.GetDirectoryName(_options.CommandReportPath)!);
         File.WriteAllText(
             _options.CommandReportPath,
             JsonSerializer.Serialize(report, new JsonSerializerOptions { WriteIndented = true }));
-        Close();
+        CompleteSmokeCommand();
+    }
+
+    private void CompleteSmokeCommand()
+    {
+        if (_options.AutoCloseMilliseconds is not { } milliseconds)
+        {
+            Close();
+            return;
+        }
+
+        var timer = new System.Windows.Forms.Timer { Interval = Math.Max(100, milliseconds) };
+        timer.Tick += (_, _) =>
+        {
+            timer.Stop();
+            timer.Dispose();
+            Close();
+        };
+        timer.Start();
     }
 
     private void SetStatus(string text)

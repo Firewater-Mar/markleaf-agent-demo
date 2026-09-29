@@ -523,6 +523,7 @@ internal sealed partial class MainForm
     {
         if (!_focusMode)
         {
+            if (_aiMode) SetAiMode(false);
             _sidebarVisibleBeforeFocus = !_sidebarSplit.Panel1Collapsed;
             _outlineDetachedBeforeFocus = _outlineDetached;
             if (_outlineDetachedBeforeFocus)

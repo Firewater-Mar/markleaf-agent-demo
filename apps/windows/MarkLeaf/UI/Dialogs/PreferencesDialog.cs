@@ -391,6 +391,7 @@ internal sealed class PreferencesDialog : Form
             _settings.Appearance = defaults.Appearance;
             _settings.General = defaults.General;
             _settings.Image = defaults.Image;
+            _settings.Typography = defaults.Typography;
             _settings.MarkdownStyle = defaults.MarkdownStyle;
             _settings.ColorTheme = defaults.ColorTheme;
             LoadSettingsIntoControls();
@@ -1512,6 +1513,7 @@ internal sealed class PreferencesDialog : Form
         target.General = source.General;
         target.Image = source.Image;
         target.Export = source.Export;
+        target.Typography = source.Typography;
         target.Shortcut = source.Shortcut;
         target.MarkdownStyle = source.MarkdownStyle;
         target.ColorTheme = source.ColorTheme;

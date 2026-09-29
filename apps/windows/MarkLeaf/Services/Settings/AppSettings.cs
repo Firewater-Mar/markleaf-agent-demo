@@ -82,6 +82,8 @@ public sealed class AppSettings
 
     public ExportSettings Export { get; set; } = new();
 
+    public TypographySettings Typography { get; set; } = new();
+
     public ShortcutSettings Shortcut { get; set; } = new();
 
     public string MarkdownStyle { get; set; } = "serif";
@@ -101,11 +103,22 @@ public sealed class AppSettings
             General = new GeneralSettings(),
             Image = new ImageSettings(),
             Export = new ExportSettings(),
+            Typography = new TypographySettings(),
             Shortcut = new ShortcutSettings(),
             MarkdownStyle = "sans-serif",
             ColorTheme = "apple-blue",
         };
     }
+}
+
+public sealed class TypographySettings
+{
+    public string SelectedTemplateId { get; set; } = "academic-report";
+    public int AiPanelWidth { get; set; } = 420;
+    public bool AiEnabled { get; set; }
+    public string AiProviderId { get; set; } = "openai";
+    public string AiBaseUrl { get; set; } = "https://api.openai.com/v1";
+    public string AiModel { get; set; } = string.Empty;
 }
 
 /// <summary>
@@ -186,7 +199,9 @@ public sealed class GeneralSettings
 
     public string UiLanguage { get; set; } = "";
 
-    public bool AutoCheckForUpdates { get; set; } = true;
+    // Competition builds are independent from upstream MarkLeaf releases. Updating from
+    // the upstream feed would replace the typography modules with the stock application.
+    public bool AutoCheckForUpdates { get; set; }
 }
 
 public sealed class AppearanceSettings

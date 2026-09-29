@@ -1,5 +1,7 @@
 <Solution>
   <Folder Name="/src/">
+    <Project Path="apps/windows/MarkLeaf.AI.Contracts/MarkLeaf.AI.Contracts.csproj" />
+    <Project Path="apps/windows/MarkLeaf.AI.OpenAICompatible/MarkLeaf.AI.OpenAICompatible.csproj" />
     <Project Path="apps/windows/MarkLeaf/MarkLeaf.csproj" />
     <Project Path="apps/windows/tests/MarkLeaf.Tests/MarkLeaf.Tests.csproj" />
   </Folder>

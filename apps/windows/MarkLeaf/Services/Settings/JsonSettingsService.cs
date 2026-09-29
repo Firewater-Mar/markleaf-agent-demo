@@ -99,6 +99,8 @@ public sealed class JsonSettingsService : ISettingsService
         NormalizeImage(settings.Image);
         settings.Export ??= new ExportSettings();
         NormalizeExport(settings.Export);
+        settings.Typography ??= new TypographySettings();
+        NormalizeTypography(settings.Typography);
         settings.Shortcut ??= new ShortcutSettings();
         NormalizeShortcuts(settings.Shortcut);
         settings.SchemaVersion = AppSettings.CurrentSchemaVersion;
@@ -112,6 +114,8 @@ public sealed class JsonSettingsService : ISettingsService
         NormalizeImage(settings.Image);
         settings.Export ??= new ExportSettings();
         NormalizeExport(settings.Export);
+        settings.Typography ??= new TypographySettings();
+        NormalizeTypography(settings.Typography);
         settings.Shortcut ??= new ShortcutSettings();
         NormalizeShortcuts(settings.Shortcut);
         settings.SchemaVersion = AppSettings.CurrentSchemaVersion;
@@ -136,6 +140,8 @@ public sealed class JsonSettingsService : ISettingsService
         NormalizeImage(settings.Image);
         settings.Export ??= new ExportSettings();
         NormalizeExport(settings.Export);
+        settings.Typography ??= new TypographySettings();
+        NormalizeTypography(settings.Typography);
         settings.Shortcut ??= new ShortcutSettings();
         settings.Shortcut.Overrides ??= [];
         settings.Shortcut.Cleared ??= [];
@@ -152,6 +158,21 @@ public sealed class JsonSettingsService : ISettingsService
         {
             shortcuts.Overrides[nameof(Commands.AppCommand.ToggleFocusMode)] = "Shift+F11";
         }
+    }
+
+    private static void NormalizeTypography(TypographySettings typography)
+    {
+        typography.SelectedTemplateId = string.IsNullOrWhiteSpace(typography.SelectedTemplateId)
+            ? "academic-report"
+            : typography.SelectedTemplateId;
+        typography.AiPanelWidth = Math.Clamp(typography.AiPanelWidth <= 0 ? 420 : typography.AiPanelWidth, 340, 720);
+        typography.AiProviderId = string.IsNullOrWhiteSpace(typography.AiProviderId)
+            ? "openai"
+            : typography.AiProviderId.Trim();
+        typography.AiBaseUrl = string.IsNullOrWhiteSpace(typography.AiBaseUrl)
+            ? "https://api.openai.com/v1"
+            : typography.AiBaseUrl.Trim();
+        typography.AiModel ??= string.Empty;
     }
 
     private static void NormalizeImage(ImageSettings image)

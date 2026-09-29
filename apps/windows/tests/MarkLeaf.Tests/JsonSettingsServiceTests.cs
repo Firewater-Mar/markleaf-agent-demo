@@ -42,6 +42,12 @@ public sealed class JsonSettingsServiceTests
                     MarkdownEmphasisMarker = "underscore",
                     MarkdownBulletMarker = "plus",
                 },
+                Typography = new TypographySettings
+                {
+                    AiEnabled = true,
+                    AiBaseUrl = "https://example.test/v1",
+                    AiModel = "layout-model",
+                },
             };
 
             await service.SaveAsync(expected);
@@ -61,6 +67,11 @@ public sealed class JsonSettingsServiceTests
             Assert.AreEqual("tilde", actual.Editor.MarkdownCodeFence);
             Assert.AreEqual("underscore", actual.Editor.MarkdownEmphasisMarker);
             Assert.AreEqual("plus", actual.Editor.MarkdownBulletMarker);
+            Assert.IsTrue(actual.Typography.AiEnabled);
+            Assert.AreEqual("https://example.test/v1", actual.Typography.AiBaseUrl);
+            Assert.AreEqual("layout-model", actual.Typography.AiModel);
+            var persistedJson = await File.ReadAllTextAsync(file);
+            Assert.IsFalse(persistedJson.Contains("apiKey", StringComparison.OrdinalIgnoreCase));
             Assert.IsFalse(File.Exists(file + ".tmp"));
         }
         finally
