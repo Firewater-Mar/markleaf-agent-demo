@@ -61,6 +61,14 @@ AI 交互层默认关闭。用户从“查看 → AI 模式”（F10）进入主
   "description": "A4 双面打印课程报告",
   "built_in": false,
   "rules": {
+    "body_font_family": "宋体",
+    "heading_font_family": "微软雅黑",
+    "body_font_size_pt": 10.5,
+    "heading_1_font_size_pt": 18,
+    "heading_2_font_size_pt": 15,
+    "heading_3_font_size_pt": 12,
+    "line_spacing": 1.6,
+    "paragraph_spacing_pt": 6,
     "max_line_chars": 42,
     "allow_orphan": false,
     "allow_widow": false,
@@ -77,7 +85,7 @@ AI 交互层默认关闭。用户从“查看 → AI 模式”（F10）进入主
 }
 ```
 
-内置预设：学术报告、技术笔记、简历。切换模板会同时改变评分阈值、规划策略和执行参数。
+内置预设：学术报告、技术笔记、简历。模板库会明确显示正文与各级标题字号、字体、行距和段后距，并按参数实时绘制 A4 标准样张。切换模板会同时改变视觉规格、评分阈值、规划策略和执行参数。
 
 ## 6. 开发与答辩顺序
 

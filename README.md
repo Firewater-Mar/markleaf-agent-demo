@@ -1,4 +1,173 @@
-# MarkLeaf
+# MarkLeaf AI
+
+面向 A4 打印与纸质阅读的 Markdown 文档工作流 Agent。
+
+`C# / .NET 10` · `WinForms` · `WebView2` · `Markdown AST` · `Offline-first`
+
+MarkLeaf AI 是面向大学课程报告、技术笔记与简历的桌面 Markdown 编辑器。它不会替用户生成正文，而是理解排版意图，调用本地文档工具完成检查、规划、修改、复评和差异审阅。
+
+项目基于开源编辑器 [MarkLeaf](https://github.com/zhuanshunjishi2017/markleaf) 的 Windows 版本进行参赛方向的二次开发。上游仓库归原作者所有；本仓库独立维护，新增能力目前集中在 Windows 版。
+
+## 为什么做这个项目
+
+普通 Markdown 编辑器主要解决“写”和“看”，但课程报告最终经常要打印成 A4：标题跳级、图片溢出版心、表格过宽、孤行寡行和连续空行，往往要到导出 PDF 后才被发现。
+
+MarkLeaf AI 把这些问题变成一个可解释、可复核的本地工作流：
+
+```mermaid
+flowchart LR
+    A[Markdown AST + WebView2 DOM] --> B[本地质量评估]
+    B --> C[确定性任务规划]
+    C --> D[受限排版工具]
+    D --> E[重新评估]
+    E -->|继续迭代| C
+    E --> F[逐项 Diff 审阅]
+    F -->|接受| G[写回文档]
+    F -->|拒绝| C
+```
+
+AI 只负责理解复杂自然语言，不负责直接改写文档。评分、任务调度、文档修改、终止条件和 Diff 全部由本地 C# 代码控制。
+
+## 核心功能
+
+### P0：排版智能闭环
+
+- Markdown AST 与 WebView2 渲染后 DOM 联合评估；
+- 0–100 分本地质量评分；
+- 识别标题跳级、连续空行、图片/表格溢出、孤行寡行、过长行和碎片化短段落；
+- 本地状态规划器按严重程度生成任务序列；
+- 标题、空行、图片、表格、分页和目录工具；
+- 最多 1–5 轮“评估 → 规划 → 执行 → 复评”；
+- 每项改动独立勾选、接受或拒绝；
+- 支持撤销整次 Agent 应用，避免覆盖之后的人工编辑。
+
+### P1：导入、导出与打印
+
+- 导入 TXT；
+- 导入受限 HTML（`p / h1-h6 / img / table`）；
+- 导出 Markdown、HTML、PDF 和长图；
+- 复用 WebView2 打印管线和 A4 样式。
+
+### P2：排版模板库
+
+- 内置“学术报告、技术笔记、简历”三套模板；
+- 可视化编辑字体、字号、行距、段后距、行长、图片宽度和表格宽度；
+- 右侧 A4 标准样张实时预览；
+- 用户可新建、复制、导入和导出模板；
+- 支持从自然语言描述或 Markdown 样例生成模板草稿；
+- JSON 作为高级格式，普通用户无需手写。
+
+### 文档工作流 Agent
+
+AI 模式与专注模式并列，是主窗口中的文档工作区，而不是连续弹窗。用户可以直接表达：
+
+```text
+检查这篇报告的排版
+在不改正文的前提下优化为 A4
+只生成目录
+让图片适合 A4 版心
+做一套课程报告模板
+导出为 HTML
+```
+
+Agent 会先展示理解与计划，再调用白名单内的本地工具。写作、续写、翻译、润色正文以及任意系统操作均不在能力范围内。
+
+## 离线与隐私边界
+
+- 未启用 AI 时不会加载可选 AI 客户端；
+- 评估、规划、优化、模板、导入、导出和打印均可离线使用；
+- OpenAI、DeepSeek、Kimi、通义千问、智谱 GLM 等兼容服务按需连接；
+- API Key 通过 Windows 凭据管理器保存，不写入普通设置文件；
+- 自然语言请求只发送当前对话中的要求和必要工具摘要，不上传完整文档正文；
+- 任何正文改动都必须经过用户的差异审阅。
+
+## 技术架构
+
+```text
+视图层
+├── WinForms 主窗口与 AI 模式
+├── 排版检查与 Diff 审阅
+└── 模板库与标准样张
+
+文档处理层
+├── Markdown AST
+├── WebView2 DOM 测量
+└── TXT / 受限 HTML 导入
+
+智能引擎层
+├── TypographyEvaluator
+├── TypographyPlanner
+├── TypographyExecutor
+└── TypographyFeedbackEngine
+
+AI 交互层（按需加载）
+├── 本地白名单意图路由
+└── OpenAI-compatible 自然语言解析
+
+工具能力层
+├── 标题 / 空行 / 图片 / 表格 / 分页 / 目录
+└── DocumentChange / Diff / 撤销
+```
+
+设计与实现细节见 [A4 排版智能体说明](./docs/markleaf-typography-agent.md)。
+
+## 快速开始
+
+### 环境
+
+- Windows 10/11；
+- .NET 10 SDK；
+- WebView2 Runtime；
+- Node.js 22.12+ 与 Corepack（仅重新构建编辑器前端时需要）。
+
+### 构建并运行 Windows 版
+
+```powershell
+corepack pnpm install:editor-web
+corepack pnpm build:editor-web
+dotnet restore .\apps\windows\MarkLeaf\MarkLeaf.csproj
+dotnet build .\apps\windows\MarkLeaf\MarkLeaf.csproj --configuration Release --no-restore
+dotnet run --project .\apps\windows\MarkLeaf\MarkLeaf.csproj
+```
+
+打开应用后，通过“查看 → AI 模式”或 `F10` 进入文档工作流 Agent。
+
+## 测试与演示
+
+```powershell
+dotnet test .\MarkLeaf.slnx --configuration Release
+```
+
+当前 Windows 测试覆盖评估器、规划器、执行器、反馈循环、模板 JSON、自然语言意图、Agent 交互、Diff 审阅、撤销和响应式布局。本次参赛功能提交已通过全部 220 项测试。
+
+比赛现场可使用 [排版演示文档](./docs/typography-demo.md)，依次展示 AI 模式、本地计划、逐项 Diff、拒绝重规划、撤销、模板标准样张和 PDF/HTML 导出。
+
+## 参赛版代码位置
+
+```text
+apps/windows/
+├── MarkLeaf/
+│   ├── Services/Typography/          # AST、评估、规划、执行、反馈、模板
+│   ├── Services/AI/                  # 意图路由、服务商配置、凭据存储
+│   ├── Services/ImportExport/        # TXT / HTML 导入
+│   └── UI/                           # AI 工作区、排版工作台、模板库
+├── MarkLeaf.AI.Contracts/            # 可选 AI 边界接口
+├── MarkLeaf.AI.OpenAICompatible/      # 按需加载的 AI 客户端
+└── tests/MarkLeaf.Tests/              # Windows 自动化测试
+```
+
+上游保留的 macOS 与 VS Code 代码仍在仓库中，但本参赛项目新增的排版 Agent、AI 模式和模板工作流当前以 Windows 版本为实现与答辩对象。
+
+## 上游与许可证
+
+本项目基于 [zhuanshunjishi2017/markleaf](https://github.com/zhuanshunjishi2017/markleaf) 二次开发，感谢原项目作者及贡献者提供的 Markdown 编辑器基础。上游仓库未被本项目修改或推送。
+
+项目继续遵循 [MIT License](./LICENSE)，第三方依赖说明见 [THIRD-PARTY-NOTICES.md](./THIRD-PARTY-NOTICES.md)。
+
+<details>
+<summary>展开查看上游 MarkLeaf 基础功能与多平台构建说明</summary>
+
+## 上游 MarkLeaf 基础能力（保留说明）
 
 [English](./docs/README.en.md) | [日本語](./docs/README.ja.md) | [繁體中文](./docs/README.zh-TW.md)
 
@@ -198,3 +367,5 @@ MSIX 的商店身份、签名与构建参数见 [MSIX 打包说明](./apps/windo
 ## 许可证
 
 应用采用 MIT 许可证。见 [LICENSE](./LICENSE)。
+
+</details>

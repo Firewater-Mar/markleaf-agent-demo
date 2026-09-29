@@ -1,4 +1,4 @@
-# Product
+# MarkLeaf AI Product Definition
 
 <!-- impeccable:product-schema 1 -->
 
@@ -13,6 +13,8 @@ The primary users are university students preparing Markdown coursework, reports
 ## Product Purpose
 
 MarkLeaf is a lightweight, offline-first Markdown editor that makes print typography inspectable and correctable. Its document workflow Agent understands a user's layout intent, plans bounded document-tool calls, runs local assessment and typography tools, and presents every proposed content change for review.
+
+The competition-facing product name is **MarkLeaf AI**. The implemented competition scope is the Windows application; inherited macOS and VS Code sources remain in the repository but do not yet expose the new Agent workflow.
 
 ## Positioning
 
